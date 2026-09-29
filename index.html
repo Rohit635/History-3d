@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dino Card AR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
+<style>
+/* Layout: full-screen stage, one floating card-like panel. Single warm look taken from the printed card. */
+:root {
+  --paper: #FBF8F3;
+  --ink: #2A1A14;
+  --muted: #7A5A4C;
+  --orange: #E8641E;
+  --stripe: #CF3326;
+  --belly: #F6DE8D;
+  --leaf: #4E9A3A;
+  --display: "Baloo 2", "Arial Rounded MT Bold", "Trebuchet MS", system-ui, sans-serif;
+  --body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+html, body { height: 100%; margin: 0; }
+[hidden] { display: none !important; }
+body { background: var(--paper); color: var(--ink); font-family: var(--body); overflow: hidden; -webkit-tap-highlight-color: transparent; }
+#stage { position: fixed; inset: 0; }
+#stage canvas, #stage video { touch-action: none; }
+
+/* start panel */
+#start { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background:
+  radial-gradient(120% 80% at 50% 110%, #CFE9B8 0 38%, transparent 38.2%),
+  radial-gradient(90% 60% at 10% 105%, #A9D98C 0 40%, transparent 40.2%),
+  var(--paper); z-index: 10; overflow-y: auto; }
+.panel { width: min(380px, 100%); display: grid; gap: 18px; text-align: center; }
+.panel h1 { font-family: var(--display); font-weight: 800; font-size: clamp(2.2rem, 9vw, 3rem); line-height: .95; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+.panel h1 span { color: var(--orange); }
+.panel p { margin: 0; color: var(--muted); font-size: 1rem; line-height: 1.45; }
+.hero3d { width: 240px; height: 210px; max-width: 100%; margin: 0 auto -6px; }
+.hero3d canvas { display: block; width: 100% !important; height: 100% !important; }
+.thumb { width: 150px; max-width: 100%; margin: 0 auto; border-radius: 14px; background: #fff; box-shadow: 0 0 0 3px var(--ink), 6px 7px 0 var(--ink); transform: rotate(-3deg); overflow: hidden; }
+.thumb img { display: block; width: 100%; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: #EFE7DC; padding: 5px; border-radius: 14px; }
+.seg label { cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; padding: 9px 6px; border-radius: 10px; font-weight: 700; color: var(--muted); }
+.seg input:checked + span { background: #fff; color: var(--ink); box-shadow: 0 1px 0 rgba(42,26,20,.15); }
+.seg input:focus-visible + span { outline: 3px solid var(--orange); }
+.eyebrow { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--muted); margin-bottom: -10px; }
+.btn { font: 800 1.15rem/1 var(--display); border: 0; border-radius: 16px; padding: 16px 18px 13px; cursor: pointer; color: #fff; background: var(--orange); box-shadow: 0 5px 0 #A9400F; transition: transform .08s, box-shadow .08s; }
+.btn:active { transform: translateY(4px); box-shadow: 0 1px 0 #A9400F; }
+.btn.ghost { background: #fff; color: var(--ink); box-shadow: 0 0 0 2px var(--ink), 0 5px 0 2px var(--ink); }
+.btn.ghost:active { box-shadow: 0 0 0 2px var(--ink), 0 1px 0 2px var(--ink); }
+.btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.note { font-size: .82rem; color: var(--muted); }
+#err { color: var(--stripe); font-weight: 700; font-size: .9rem; }
+
+/* in-experience HUD */
+#hud { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 10px; justify-content: center; z-index: 5; pointer-events: none; }
+#hud .btn { pointer-events: auto; font-size: 1rem; padding: 12px 16px 10px; }
+#back { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 16px; z-index: 5; font-size: .95rem; padding: 10px 14px 8px; }
+#hint { position: fixed; inset: 0; display: grid; place-items: center; z-index: 4; pointer-events: none; }
+.frame { width: min(62vw, 300px); aspect-ratio: 1000 / 829; max-width: 100%; position: relative; }
+.frame::before, .frame::after { content: ""; position: absolute; inset: 0; border: 5px solid #fff; border-radius: 18px; clip-path: polygon(0 0, 22% 0, 22% 5px, 5px 5px, 5px 26%, 0 26%, 0 74%, 5px 74%, 5px calc(100% - 5px), 22% calc(100% - 5px), 22% 100%, 78% 100%, 78% calc(100% - 5px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) 74%, 100% 74%, 100% 26%, calc(100% - 5px) 26%, calc(100% - 5px) 5px, 78% 5px, 78% 0, 100% 0, 100% 100%, 0 100%); animation: pulse 1.6s ease-in-out infinite; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
+.frame::after { display: none; }
+.hinttext { position: absolute; left: 50%; bottom: -58px; transform: translateX(-50%); white-space: nowrap; background: rgba(42,26,20,.78); color: #fff; font-weight: 700; padding: 8px 14px; border-radius: 999px; font-size: .95rem; }
+@keyframes pulse { 50% { transform: scale(1.05); opacity: .75; } }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; z-index: 6; background: rgba(251,248,243,.92); font: 800 1.3rem var(--display); }
+@media (prefers-reduced-motion: reduce) { .frame::before { animation: none; } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<section id="start">
+  <div class="panel">
+    <div class="hero3d" id="hero" role="img" aria-label="Animated 3D T-rex"></div>
+    <h1>Dino Card <span>AR</span></h1>
+    <p>Point your phone at the T-rex card and a little prehistoric world grows around it.</p>
+    <div class="eyebrow">Where is the card?</div>
+    <div class="seg" role="radiogroup" aria-label="Card placement">
+      <label><input type="radio" name="surface" id="surfTable" value="table" checked><span>Lying flat</span></label>
+      <label><input type="radio" name="surface" id="surfWall" value="wall"><span>On a wall</span></label>
+    </div>
+    <button class="btn" id="startAR">Start camera</button>
+    <button class="btn ghost" id="startPreview">Preview in 3D</button>
+    <div id="err" hidden></div>
+    <div class="note">Needs HTTPS and camera permission. Works in Chrome (Android) and Safari (iPhone).</div>
+  </div>
+</section>
+
+<button class="btn ghost" id="back" hidden>← Back</button>
+<div id="hint" hidden><div class="frame"><div class="hinttext">Fit the dinosaur card in the frame</div></div></div>
+<div id="hud" hidden><button class="btn" id="replay">Replay</button></div>
+<div id="loading" hidden>Waking the dinosaurs…</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================== palette ============================== */
+const C = {
+  orange: 0xE8641E, stripe: 0xCF3326, belly: 0xF6DE8D, claw: 0x3A1D16,
+  grass: 0x7CC24A, grassDark: 0x4E9A3A, soil: 0x9A6440, soilDark: 0x6E4430,
+  sand: 0xF2D49B, water: 0x4FC3E8, rock: 0xA89484, trunk: 0xB9844F,
+  volcano: 0x7E5238, lava: 0xFF7A1A, smoke: 0xE9E2DA,
+  teal: 0x3FAE9E, tealStripe: 0x2A7F74, blue: 0x6D86D9, blueStripe: 0x4A5FB5,
+  frill: 0xF3A77E, horn: 0xFFF3D6, ptero: 0x9C6ACF, pteroStripe: 0x6F45A3, egg: 0xFFF6E2
+};
+const TAU = Math.PI * 2;
+const CARD_W = 1, CARD_H = 829 / 1000;
+
+/* ============================== materials ============================== */
+const gradientMap = (() => {
+  const d = new Uint8Array([90, 170, 255]);
+  const t = new THREE.DataTexture(d, 3, 1, THREE.RedFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t;
+})();
+const matCache = {};
+function toon(color, extra = {}) {
+  const key = color + JSON.stringify(extra);
+  if (!extra.map && matCache[key]) return matCache[key];
+  const m = new THREE.MeshToonMaterial({ color, gradientMap, ...extra });
+  if (!extra.map) matCache[key] = m;
+  return m;
+}
+const hex = n => '#' + n.toString(16).padStart(6, '0');
+
+/* Skin texture in the card's style: flat base, diamond stripes along the spine, cream belly.
+   Used on spheres whose pole runs along the body's long axis (u=0 is the spine, u=.5 the belly). */
+function skin(base, stripe, belly, stripes = 7, stripeW = .2) {
+  const W = 256, H = 256, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = hex(base); g.fillRect(0, 0, W, H);
+  if (belly != null) {
+    g.fillStyle = hex(belly);
+    g.fillRect(W * (0.5 - 0.19), 0, W * 0.38, H);
+  }
+  if (stripe != null && stripes > 0) {
+    g.fillStyle = hex(stripe);
+    for (let i = 0; i < stripes; i++) {
+      const y = H * (0.12 + 0.76 * (i + 0.5) / stripes), dy = H * 0.3 / stripes;
+      for (const cx of [0, W]) {
+        g.beginPath();
+        g.moveTo(cx, y - dy); g.lineTo(cx + W * stripeW, y); g.lineTo(cx, y + dy * 0.6); g.lineTo(cx - W * stripeW, y);
+        g.closePath(); g.fill();
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/* ============================== geometry helpers ============================== */
+const sphereAlongX = (() => { const g = new THREE.SphereGeometry(0.5, 28, 20); g.rotateZ(-Math.PI / 2); return g; })();
+const sphereGeo = new THREE.SphereGeometry(0.5, 20, 14);
+const coneGeo = new THREE.ConeGeometry(0.5, 1, 12);
+const cylGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
+
+function blob(len, h, w, mat, geo = sphereAlongX) { const m = new THREE.Mesh(geo, mat); m.scale.set(len, h, w); return m; }
+function ball(r, mat) { const m = new THREE.Mesh(sphereGeo, mat); m.scale.setScalar(r * 2); return m; }
+function cone(r, h, mat) { const m = new THREE.Mesh(coneGeo, mat); m.scale.set(r * 2, h, r * 2); return m; }
+function grp(x = 0, y = 0, z = 0, ...kids) { const g = new THREE.Group(); g.position.set(x, y, z); kids.forEach(k => g.add(k)); return g; }
+function at(obj, x, y, z) { obj.position.set(x, y, z); return obj; }
+
+const shadowTex = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d');
+  const r = g.createRadialGradient(32, 32, 2, 32, 32, 31); r.addColorStop(0, 'rgba(40,25,15,.55)'); r.addColorStop(1, 'rgba(40,25,15,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(cv);
+})();
+function blobShadow(sx, sz) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.scale.set(sx, sz, 1); m.position.y = 0.004; m.renderOrder = 1; return m;
+}
+
+/* Eye like the card: white ball, big black pupil, tiny highlight */
+function eye(r) {
+  const e = new THREE.Group();
+  e.add(ball(r, toon(0xffffff)));
+  e.add(at(ball(r * 0.62, toon(0x1b1210)), r * 0.25, 0, r * 0.55));
+  e.add(at(ball(r * 0.2, new THREE.MeshBasicMaterial({ color: 0xffffff })), r * 0.4, r * 0.25, r * 0.95));
+  return e;
+}
+
+/* A chain of tapered blob segments (tails, necks) that can wave. */
+function chain(n, len0, len1, r0, r1, mat, dir = -1, lift = 0) {
+  const joints = []; let parent = new THREE.Group(); const root = parent;
+  for (let i = 0; i < n; i++) {
+    const k = i / (n - 1), L = THREE.MathUtils.lerp(len0, len1, k), r = THREE.MathUtils.lerp(r0, r1, k);
+    const j = new THREE.Group(); j.rotation.z = lift;
+    const seg = blob(L * 1.75, r * 2, r * 2, mat); seg.position.x = dir * L * 0.5; j.add(seg);
+    parent.add(j); joints.push(j);
+    const next = new THREE.Group(); next.position.x = dir * L; j.add(next); parent = next;
+  }
+  return { root, joints, tip: parent };
+}
+
+/* ============================== dinosaurs ============================== */
+function claws(n, mat, s) {
+  const g = new THREE.Group();
+  for (let i = 0; i < n; i++) {
+    const c = cone(0.035 * s, 0.1 * s, mat); c.rotation.z = -Math.PI / 2 - 0.5;
+    c.position.set(0.02 * s, 0, (i - (n - 1) / 2) * 0.06 * s); g.add(c);
+  }
+  return g;
+}
+
+// T-rex, built to read like the card: orange, red spine stripes, cream belly and throat, big friendly eye, open grin.
+function makeTrex() {
+  const bodyMat = toon(0xffffff, { map: skin(C.orange, C.stripe, C.belly, 6, .22) });
+  const tailMat = toon(0xffffff, { map: skin(C.orange, C.stripe, C.belly, 3, .24) });
+  const plain = toon(C.orange), belly = toon(C.belly), dark = toon(C.claw), mouth = toon(0x8E1F22), tooth = toon(0xffffff);
+  const root = new THREE.Group();
+  const hips = grp(0, 0.95, 0); root.add(hips);
+  const torso = new THREE.Group(); torso.rotation.z = 0.32; hips.add(torso);
+  torso.add(blob(1.15, 0.72, 0.62, bodyMat));
+  const chest = at(blob(0.62, 0.6, 0.5, bodyMat), 0.45, 0.12, 0); chest.rotation.z = 0.6; torso.add(chest);
+
+  // head
+  const neckBlob = at(blob(0.46, 0.4, 0.38, bodyMat), 0.62, 0.36, 0); neckBlob.rotation.z = 1.0; torso.add(neckBlob);
+  const neck = grp(0.62, 0.38, 0); torso.add(neck);
+  const head = grp(0.06, 0.12, 0); head.rotation.z = -0.32; neck.add(head);
+  const skull = at(blob(0.72, 0.4, 0.44, plain), 0.2, 0.06, 0); head.add(skull);
+  const snout = at(blob(0.42, 0.26, 0.34, plain), 0.46, 0.02, 0); head.add(snout);
+  head.add(at(ball(0.035, dark), 0.64, 0.1, 0.1)); // nostril
+  const brow = at(blob(0.22, 0.05, 0.05, dark), 0.14, 0.26, 0.2); brow.rotation.z = 0.35; head.add(brow);
+  const brow2 = brow.clone(); brow2.position.z = -0.2; head.add(brow2);
+  for (const s of [1, -1]) { const e = eye(0.085); e.position.set(0.12, 0.13, 0.19 * s); if (s < 0) e.rotation.y = Math.PI; e.rotation.y += s > 0 ? 0.35 : -0.35; head.add(e); }
+  head.add(at(blob(0.5, 0.1, 0.3, mouth), 0.34, -0.1, 0)); // inside of mouth
+  for (let i = 0; i < 5; i++) for (const s of [1, -1]) { const t = cone(0.022, 0.06, tooth); t.rotation.x = Math.PI; t.position.set(0.2 + i * 0.09, -0.1, 0.13 * s); head.add(t); }
+  const jaw = grp(0.02, -0.1, 0); head.add(jaw);
+  jaw.add(at(blob(0.58, 0.14, 0.3, belly), 0.3, -0.04, 0));
+  for (let i = 0; i < 4; i++) for (const s of [1, -1]) { const t = cone(0.02, 0.05, tooth); t.position.set(0.2 + i * 0.09, 0.02, 0.11 * s); jaw.add(t); }
+
+  // tiny arms
+  const arms = [];
+  for (const s of [1, -1]) {
+    const a = grp(0.5, -0.12, 0.22 * s); torso.add(a); arms.push(a);
+    a.add(at(blob(0.22, 0.09, 0.09, plain), 0.06, -0.06, 0)); a.children[0].rotation.z = -0.9;
+    const cl = claws(2, dark, 0.8); cl.position.set(0.14, -0.14, 0); a.add(cl);
+  }
+  // tail, sweeping up like the card
+  const tail = chain(6, 0.36, 0.2, 0.26, 0.05, tailMat, -1, -0.06); tail.root.position.set(-0.46, -0.02, 0); torso.add(tail.root);
+
+  // legs
+  const legs = [];
+  for (const s of [1, -1]) {
+    const hip = grp(0.02, -0.1, 0.24 * s); hips.add(hip);
+    const thigh = at(blob(0.56, 0.6, 0.26, plain), -0.02, -0.14, 0); thigh.rotation.z = 0.5; hip.add(thigh);
+    const knee = grp(0.08, -0.42, 0); hip.add(knee);
+    const shin = at(blob(0.18, 0.44, 0.17, plain), -0.04, -0.16, 0); knee.add(shin);
+    const ankle = grp(-0.06, -0.38, 0); knee.add(ankle);
+    ankle.add(at(blob(0.3, 0.1, 0.18, plain), 0.1, -0.03, 0));
+    const cl = claws(3, dark, 1); cl.position.set(0.25, -0.05, 0); ankle.add(cl);
+    legs.push({ hip, knee, ankle, s });
+  }
+  root.add(blobShadow(1.4, 0.7));
+  root.userData = { kind: 'trex', hips, torso, head, jaw, tail, legs, arms };
+  return root;
+}
+
+// Long-neck: big, gentle, teal with darker stripes.
+function makeLongneck() {
+  const bodyMat = toon(0xffffff, { map: skin(C.teal, C.tealStripe, C.belly, 6, .2) });
+  const plain = toon(C.teal), dark = toon(C.claw);
+  const root = new THREE.Group();
+  const hips = grp(0, 1.05, 0); root.add(hips);
+  hips.add(blob(1.5, 0.95, 0.8, bodyMat));
+  const neck = chain(6, 0.34, 0.28, 0.2, 0.12, bodyMat, 1, 0.24); neck.root.position.set(0.55, 0.25, 0); hips.add(neck.root);
+  const head = new THREE.Group(); neck.tip.add(head); head.rotation.z = -0.9;
+  head.add(at(blob(0.42, 0.24, 0.24, plain), 0.14, 0, 0));
+  for (const s of [1, -1]) { const e = eye(0.055); e.position.set(0.12, 0.07, 0.11 * s); e.rotation.y = s > 0 ? 0.3 : Math.PI - 0.3; head.add(e); }
+  const tail = chain(6, 0.36, 0.22, 0.2, 0.04, bodyMat, -1, 0.1); tail.root.position.set(-0.68, 0.05, 0); hips.add(tail.root);
+  const legs = [];
+  for (const [x, s] of [[0.45, 1], [0.45, -1], [-0.45, 1], [-0.45, -1]]) {
+    const hip = grp(x, -0.2, 0.28 * s); hips.add(hip);
+    hip.add(at(new THREE.Mesh(cylGeo, plain), 0, -0.42, 0)); hip.children[0].scale.set(0.26, 0.9, 0.26);
+    const foot = at(ball(0.15, plain), 0, -0.84, 0); foot.scale.y = 0.6; hip.add(foot);
+    const cl = claws(3, dark, 0.9); cl.position.set(0.13, -0.86, 0); hip.add(cl);
+    legs.push({ hip, s, front: x > 0 });
+  }
+  root.add(blobShadow(2.1, 1.1));
+  root.userData = { kind: 'longneck', hips, neck, head, tail, legs };
+  return root;
+}
+
+// Triceratops: blue with frill and horns, stocky.
+function makeTrike() {
+  const bodyMat = toon(0xffffff, { map: skin(C.blue, C.blueStripe, C.belly, 5, .22) });
+  const plain = toon(C.blue), frillM = toon(C.frill), hornM = toon(C.horn), dark = toon(C.claw);
+  const root = new THREE.Group();
+  const hips = grp(0, 0.62, 0); root.add(hips);
+  hips.add(blob(1.2, 0.78, 0.74, bodyMat));
+  const head = grp(0.62, 0.02, 0); hips.add(head);
+  head.add(at(blob(0.52, 0.42, 0.42, plain), 0.14, -0.04, 0));
+  head.add(at(blob(0.24, 0.2, 0.22, plain), 0.42, -0.1, 0));
+  const frill = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.06, 24, 1, false, 0, Math.PI), frillM);
+  frill.rotation.set(0, 0, Math.PI / 2 + 0.35); frill.rotation.order = 'ZYX'; frill.position.set(-0.04, 0.1, 0); head.add(frill);
+  frill.rotation.set(Math.PI / 2, 0, Math.PI / 2 - 0.25);
+  for (const s of [1, -1]) {
+    const h = cone(0.05, 0.36, hornM); h.position.set(0.28, 0.2, 0.12 * s); h.rotation.set(0, 0, -1.05); head.add(h);
+    const e = eye(0.06); e.position.set(0.22, 0.08, 0.19 * s); e.rotation.y = s > 0 ? 0.3 : Math.PI - 0.3; head.add(e);
+  }
+  const nose = cone(0.05, 0.18, hornM); nose.position.set(0.5, 0.03, 0); nose.rotation.z = -0.6; head.add(nose);
+  const tail = chain(4, 0.26, 0.16, 0.18, 0.05, bodyMat, -1, 0.12); tail.root.position.set(-0.55, 0.02, 0); hips.add(tail.root);
+  const legs = [];
+  for (const [x, s] of [[0.35, 1], [0.35, -1], [-0.32, 1], [-0.32, -1]]) {
+    const hip = grp(x, -0.18, 0.27 * s); hips.add(hip);
+    hip.add(at(blob(0.26, 0.5, 0.24, plain, sphereGeo), 0, -0.22, 0));
+    const cl = claws(3, dark, 0.8); cl.position.set(0.12, -0.44, 0); hip.add(cl);
+    legs.push({ hip, s, front: x > 0 });
+  }
+  root.add(blobShadow(1.5, 0.9));
+  root.userData = { kind: 'trike', hips, head, tail, legs };
+  return root;
+}
+
+// Pterosaur: purple, triangle wings that flap.
+function makePtero() {
+  const plain = toon(C.ptero), wingM = toon(C.pteroStripe, { side: THREE.DoubleSide }), beak = toon(C.belly);
+  const root = new THREE.Group();
+  root.add(blob(0.5, 0.18, 0.2, plain));
+  const head = grp(0.26, 0.06, 0); root.add(head);
+  head.add(ball(0.1, plain));
+  const b = cone(0.05, 0.34, beak); b.rotation.z = -Math.PI / 2; b.position.x = 0.2; head.add(b);
+  const crest = cone(0.04, 0.26, plain); crest.rotation.z = Math.PI / 2 + 0.4; crest.position.set(-0.14, 0.05, 0); head.add(crest);
+  for (const s of [1, -1]) { const e = eye(0.035); e.position.set(0.05, 0.04, 0.08 * s); e.rotation.y = s > 0 ? 0.3 : Math.PI - 0.3; head.add(e); }
+  const wings = [];
+  for (const s of [1, -1]) {
+    const shape = new THREE.Shape(); shape.moveTo(0.14, 0); shape.lineTo(0.02, 0.9); shape.quadraticCurveTo(-0.1, 0.4, -0.22, 0); shape.closePath();
+    const w = new THREE.Mesh(new THREE.ShapeGeometry(shape), wingM);
+    const pivot = grp(0, 0.02, 0.06 * s); pivot.add(w);
+    w.rotation.x = s > 0 ? Math.PI / 2 : -Math.PI / 2;
+    root.add(pivot); wings.push({ pivot, s });
+  }
+  root.userData = { kind: 'ptero', wings, head };
+  return root;
+}
+
+/* ============================== environment ============================== */
+function makeGround(rx, rz, holeW, holeH) {
+  const outer = new THREE.Shape();
+  const N = 64;
+  for (let i = 0; i <= N; i++) {
+    const a = i / N * TAU, wob = 1 + 0.04 * Math.sin(a * 5) + 0.03 * Math.sin(a * 9 + 1);
+    const x = Math.cos(a) * rx * wob, y = Math.sin(a) * rz * wob;
+    i ? outer.lineTo(x, y) : outer.moveTo(x, y);
+  }
+  if (holeW) {
+    const h = new THREE.Path(), hw = holeW / 2, hh = holeH / 2, r = 0.06;
+    h.moveTo(-hw + r, -hh); h.lineTo(hw - r, -hh); h.quadraticCurveTo(hw, -hh, hw, -hh + r); h.lineTo(hw, hh - r); h.quadraticCurveTo(hw, hh, hw - r, hh);
+    h.lineTo(-hw + r, hh); h.quadraticCurveTo(-hw, hh, -hw, hh - r); h.lineTo(-hw, -hh + r); h.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+    outer.holes.push(h);
+  }
+  const geo = new THREE.ExtrudeGeometry(outer, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2, curveSegments: 8 });
+  geo.rotateX(-Math.PI / 2); geo.translate(0, -0.14, 0);
+  const m = new THREE.Mesh(geo, [toon(C.grass), toon(C.soil)]);
+  return m;
+}
+
+function makePalm(h = 0.8, lean = 0.2) {
+  const g = new THREE.Group(), trunkM = toon(C.trunk), ringM = toon(0x9C6B3C), leafM = toon(C.grassDark), leafM2 = toon(0x5FAF45);
+  const n = 7; let y = 0;
+  const trunk = new THREE.Group(); g.add(trunk);
+  for (let i = 0; i < n; i++) {
+    const k = i / n, r = 0.055 - 0.02 * k;
+    const s = new THREE.Mesh(cylGeo, i % 2 ? trunkM : ringM); s.scale.set(r * 2, h / n * 1.05, r * 2);
+    s.position.set(Math.pow(k, 2) * lean, y + h / n / 2, 0); s.rotation.z = -lean * 1.6 * k; trunk.add(s); y += h / n;
+  }
+  const crown = grp(lean, h, 0); trunk.add(crown);
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * TAU;
+    const leaf = new THREE.Group(); leaf.rotation.y = a; crown.add(leaf);
+    const l = blob(0.5, 0.04, 0.14, i % 2 ? leafM : leafM2); l.position.set(0.22, -0.03, 0); l.rotation.z = -0.45; leaf.add(l);
+  }
+  crown.add(ball(0.05, toon(0x6E4A2A)));
+  g.add(blobShadow(0.5, 0.5));
+  g.userData.crown = crown; g.userData.trunk = trunk;
+  return g;
+}
+function makeBush(s = 1) {
+  const g = new THREE.Group(), a = toon(C.grassDark), b = toon(0x5FAF45);
+  [[0, .08, 0, .12], [.1, .06, .03, .09], [-.09, .06, -.02, .1], [.02, .13, -.04, .08]].forEach(([x, y, z, r], i) => g.add(at(ball(r, i % 2 ? b : a), x, y, z)));
+  g.scale.setScalar(s); return g;
+}
+function makeFern(s = 1) {
+  const g = new THREE.Group(), m = toon(0x5FAF45);
+  for (let i = 0; i < 6; i++) { const f = grp(); f.rotation.y = i / 6 * TAU; const l = blob(0.24, 0.03, 0.06, m); l.position.set(0.1, 0.07, 0); l.rotation.z = 0.5; f.add(l); g.add(f); }
+  g.scale.setScalar(s); return g;
+}
+function makeRock(s = 1) {
+  const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.1, 0), toon(C.rock));
+  m.scale.set(s * 1.3, s * 0.8, s); m.rotation.y = Math.random() * TAU; m.position.y = 0.03 * s; return m;
+}
+function makeVolcano() {
+  const g = new THREE.Group();
+  const pts = []; for (let i = 0; i <= 12; i++) { const k = i / 12; pts.push(new THREE.Vector2(0.5 * (1 - k) + 0.12 * k + 0.03 * Math.sin(k * 9), k * 0.85)); }
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 28), toon(C.volcano)); g.add(body);
+  const lava = toon(C.lava, { emissive: C.lava, emissiveIntensity: 0.6 });
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.02, 20), lava); cap.position.y = 0.85; g.add(cap);
+  for (let i = 0; i < 3; i++) { // lava drips
+    const d = blob(0.07, 0.34 - i * 0.06, 0.05, lava, sphereGeo); const a = i * 2.1 + 0.4;
+    d.position.set(Math.cos(a) * 0.19, 0.66 - i * 0.03, Math.sin(a) * 0.19); d.rotation.set(Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45); g.add(d);
+  }
+  const smoke = []; const sm = new THREE.MeshToonMaterial({ color: C.smoke, gradientMap, transparent: true, opacity: 0.9 });
+  for (let i = 0; i < 7; i++) { const p = ball(0.08, sm.clone()); p.userData.t = i / 7; g.add(p); smoke.push(p); }
+  g.userData = { smoke, lava };
+  return g;
+}
+function makeNest() {
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.05, 8, 20), toon(0xC89A5E)); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; g.add(ring);
+  const eggM = toon(0xffffff, { map: (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const x = cv.getContext('2d'); x.fillStyle = hex(C.egg); x.fillRect(0, 0, 64, 64); x.fillStyle = '#E9A26B'; for (let i = 0; i < 14; i++) { x.beginPath(); x.arc(Math.random() * 64, Math.random() * 64, 2 + Math.random() * 3, 0, TAU); x.fill(); } const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; })() });
+  const eggs = [];
+  [[-.05, 0, .02], [.06, 0, -.03], [.0, 0, -.08]].forEach(([x, , z]) => { const e = ball(0.055, eggM); e.scale.y = 0.14; e.position.set(x, 0.07, z); g.add(e); eggs.push(e); });
+  g.userData.eggs = eggs; return g;
+}
+function makePond() {
+  const g = new THREE.Group();
+  const sh = new THREE.Shape(); sh.absellipse(0, 0, 0.42, 0.28, 0, TAU);
+  const sand = new THREE.Mesh(new THREE.ShapeGeometry(sh, 32), toon(C.sand)); sand.rotation.x = -Math.PI / 2; sand.scale.setScalar(1.15); sand.position.y = 0.003; g.add(sand);
+  const w = new THREE.Mesh(new THREE.ShapeGeometry(sh, 32), toon(C.water)); w.rotation.x = -Math.PI / 2; w.position.y = 0.006; g.add(w);
+  const hl = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.14, 24, 1, 0.3, 1.6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .7 })); hl.rotation.x = -Math.PI / 2; hl.position.set(0.1, 0.008, -0.05); g.add(hl);
+  return g;
+}
+function makeCloud() {
+  const g = new THREE.Group(), m = toon(0xffffff);
+  [[0, 0, 0, .16], [.15, -.02, 0, .12], [-.15, -.03, 0, .11], [.05, .07, 0, .11]].forEach(([x, y, z, r]) => g.add(at(ball(r, m), x, y, z)));
+  return g;
+}
+
+/* ============================== world assembly ============================== */
+const RX = 1.95, RZ = 1.5, HOLE_W = 1.12, HOLE_H = CARD_H + 0.1;
+const PATH = { rx: 0.98, rz: 0.82 };   // T-rex loop around the card
+
+function buildWorld() {
+  const world = new THREE.Group();
+  const items = [];   // things that pop in: {obj, delay, base scale}
+  const add = (obj, x, z, delay, s = 1, ry = 0) => { obj.position.x = x; obj.position.z = z; obj.rotation.y = ry; obj.scale.setScalar(0.0001); world.add(obj); items.push({ obj, delay, s }); return obj; };
+
+  const ground = makeGround(RX, RZ, HOLE_W, HOLE_H); world.add(ground);
+  const fill = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_W + 0.02, HOLE_H + 0.02), toon(C.grass)); fill.rotation.x = -Math.PI / 2; fill.position.y = -0.002; fill.visible = false; world.add(fill);
+
+  const volcano = add(makeVolcano(), -1.3, -0.88, 0.35, 1);
+  const palms = [
+    add(makePalm(0.8, 0.22), 0.62, -1.18, 0.55, 1, 0.3),
+    add(makePalm(0.66, -0.18), -0.34, -1.22, 0.6, 1, 1.2),
+    add(makePalm(0.72, 0.2), 1.62, 0.12, 0.7, 1, 3.4),
+    add(makePalm(0.58, 0.16), -1.66, 0.28, 0.75, 1, 0.2),
+    add(makePalm(0.5, -0.2), 0.1, -1.32, 0.8, 1, 2.1)
+  ];
+  const pond = add(makePond(), 1.12, 0.92, 0.45);
+  const nest = add(makeNest(), -0.62, 1.16, 0.9);
+  const decor = [
+    [makeBush(1.1), 1.0, -1.05], [makeBush(0.8), -0.9, -1.25], [makeBush(0.9), 1.75, -0.35], [makeBush(1), -1.75, -0.2],
+    [makeFern(1.2), 0.2, 1.3], [makeFern(1), 1.7, 0.6], [makeFern(0.9), -1.5, 0.9], [makeFern(1.1), -0.05, -1.05], [makeFern(0.9), 0.7, 1.28],
+    [makeRock(1.2), -0.8, -0.95], [makeRock(0.8), 0.45, 1.3], [makeRock(1), 1.55, 0.95], [makeRock(0.7), -1.2, 1.15], [makeRock(0.9), 1.45, -1.05], [makeFern(0.8), -1.05, -0.45]
+  ];
+  decor.forEach(([o, x, z], i) => add(o, x, z, 0.5 + Math.hypot(x, z) * 0.35 + i * 0.02));
+
+  const trex = makeTrex(); trex.scale.setScalar(0.0001); world.add(trex);
+  const longneck = add(makeLongneck(), 1.25, -0.4, 1.3, 0.42, 2.45);
+  const trike = add(makeTrike(), -1.2, 0.7, 1.5, 0.27);
+  const pteros = [makePtero(), makePtero(), makePtero()];
+  pteros.forEach((p, i) => { p.scale.setScalar(0.0001); world.add(p); });
+  const clouds = [add(makeCloud(), -0.6, -0.9, 1.8, 1.2), add(makeCloud(), 0.9, 0.3, 1.9, 0.9)];
+  clouds.forEach((c, i) => c.position.y = 1.35 + i * 0.2);
+
+  return { world, ground, fill, items, volcano, palms, nest, trex, longneck, trike, pteros, clouds };
+}
+
+/* ============================== animation ============================== */
+const easeOutBack = t => { const c = 1.9; t = Math.min(1, Math.max(0, t)); return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const clamp01 = t => Math.min(1, Math.max(0, t));
+const smooth = t => { t = clamp01(t); return t * t * (3 - 2 * t); };
+
+function animateBipedWalk(u, t, speed, amount = 1) {
+  const p = t * speed;
+  u.legs.forEach(({ hip, knee, ankle, s }) => {
+    const ph = p + (s > 0 ? 0 : Math.PI);
+    hip.rotation.z = Math.sin(ph) * 0.55 * amount;
+    knee.rotation.z = -Math.max(0, Math.cos(ph)) * 0.7 * amount;
+    ankle.rotation.z = -hip.rotation.z - knee.rotation.z;
+  });
+  u.hips.position.y = 0.95 + Math.abs(Math.sin(p)) * 0.05 * amount - 0.03 * amount;
+  u.hips.rotation.x = Math.sin(p) * 0.04 * amount;
+}
+function animateQuadWalk(u, t, speed, amount, baseY) {
+  const p = t * speed;
+  u.legs.forEach(({ hip, s, front }) => { hip.rotation.z = Math.sin(p + (s > 0 ? 0 : Math.PI) + (front ? Math.PI : 0)) * 0.35 * amount; });
+  u.hips.position.y = baseY + Math.abs(Math.sin(p)) * 0.03 * amount;
+}
+function waveChain(ch, t, amp, speed, axis = 'y', phase = 0.7) {
+  ch.joints.forEach((j, i) => { j.rotation[axis] = Math.sin(t * speed - i * phase) * amp * (0.4 + i * 0.18); });
+}
+
+class DinoScene {
+  constructor() { this.w = buildWorld(); this.reset(); }
+  get world() { return this.w.world; }
+  reset() {
+    this.t = 0;
+    const w = this.w;
+    w.ground.scale.set(0.0001, 1, 0.0001);
+    w.items.forEach(i => i.obj.scale.setScalar(0.0001));
+    w.trex.scale.setScalar(0.0001); w.pteros.forEach(p => p.scale.setScalar(0.0001));
+    this.trexHeading = Math.PI; // faces left, like the card
+  }
+  setSpawn(v) { this.spawn = v.clone(); }
+  update(dt) {
+    this.t += dt; const t = this.t, w = this.w;
+    // 1. Ground grows out from the card
+    const g = easeOutBack(t / 0.9); w.ground.scale.set(Math.max(g, 0.0001), 1, Math.max(g, 0.0001));
+    // 2. Everything pops up in a ripple from the centre
+    for (const it of w.items) { const k = easeOutBack((t - it.delay) / 0.55); it.obj.scale.setScalar(Math.max(0.0001, k * it.s)); }
+
+    // volcano: shake while rising, then smoke + glowing lava
+    const v = w.volcano; const vr = clamp01((t - 0.35) / 0.8);
+    v.position.y = -0.4 * (1 - smooth(vr)); v.rotation.z = vr < 1 ? Math.sin(t * 60) * 0.02 : 0;
+    v.userData.lava.emissiveIntensity = 0.45 + 0.35 * Math.sin(t * 3);
+    v.userData.smoke.forEach(p => { const k = (p.userData.t + t * 0.18) % 1; const on = t > 1.2 ? 1 : 0; p.position.set(Math.sin(k * 6 + p.userData.t * 9) * 0.06 + k * 0.15, 0.9 + k * 0.7, 0); p.scale.setScalar((0.08 + k * 0.22) * on); p.material.opacity = 0.9 * (1 - k); });
+
+    // palms sway
+    w.palms.forEach((p, i) => { p.userData.crown.rotation.z = Math.sin(t * 1.4 + i) * 0.06; p.userData.crown.rotation.x = Math.cos(t * 1.1 + i) * 0.05; });
+    // eggs wobble, one hatches-ish
+    w.nest.userData.eggs.forEach((e, i) => { e.rotation.z = Math.sin(t * (i === 0 ? 9 : 2) + i) * (i === 0 ? 0.25 * Math.max(0, Math.sin(t * 0.8)) : 0.03); });
+    w.clouds.forEach((c, i) => { c.position.x += Math.sin(t * 0.2 + i) * 0.0015; });
+
+    this.updateTrex(dt);
+    this.updateLongneck();
+    this.updateTrike();
+    this.updatePteros();
+  }
+  updateTrex(dt) {
+    const w = this.w, r = w.trex, u = r.userData, t = this.t;
+    const T0 = 0.6, T1 = 1.5, T2 = 2.9, T3 = 4.1;   // emerge, roar, hop off, walk
+    const spawn = this.spawn || new THREE.Vector3();
+    const S = 0.36;
+    const startA = Math.PI; // path point at (-rx, 0)
+    const pathPt = a => new THREE.Vector3(Math.cos(a) * PATH.rx, 0, Math.sin(a) * PATH.rz);
+    if (t < T0) { r.scale.setScalar(0.0001); return; }
+    if (t < T1) {                       // rises out of the card
+      const k = (t - T0) / (T1 - T0);
+      r.scale.setScalar(Math.max(0.0001, easeOutBack(k) * S));
+      r.position.copy(spawn); r.position.y += Math.sin(k * Math.PI) * 0.12;
+      r.rotation.y = this.trexHeading; animateBipedWalk(u, t, 0, 0);
+      u.jaw.rotation.z = 0; u.head.rotation.z = -0.32;
+      waveChain(u.tail, t, 0.08, 3);
+      return;
+    }
+    r.scale.setScalar(S);
+    if (t < T2) {                       // roar
+      const k = (t - T1) / (T2 - T1), roar = Math.sin(clamp01(k * 1.2) * Math.PI);
+      r.position.copy(spawn);
+      u.jaw.rotation.z = -0.65 * roar; u.head.rotation.z = -0.32 + 0.35 * roar; u.head.rotation.y = Math.sin(t * 30) * 0.03 * roar;
+      u.torso.rotation.z = 0.32 + 0.12 * roar;
+      u.arms.forEach(a => a.rotation.z = Math.sin(t * 20) * 0.3 * roar);
+      waveChain(u.tail, t, 0.12 + 0.15 * roar, 6);
+      animateBipedWalk(u, t, 0, 0);
+      return;
+    }
+    u.jaw.rotation.z = -0.08 - 0.06 * Math.sin(t * 2); u.head.rotation.y = 0; u.torso.rotation.z = 0.32;
+    u.arms.forEach((a, i) => a.rotation.z = Math.sin(t * 7 + i) * 0.15);
+    if (t < T3) {                       // hop from the card onto the trail
+      const k = smooth((t - T2) / (T3 - T2)), target = pathPt(startA);
+      r.position.lerpVectors(spawn, target, k); r.position.y = THREE.MathUtils.lerp(spawn.y, 0, k) + Math.sin(k * Math.PI) * 0.08;
+      const d = new THREE.Vector3().subVectors(target, spawn);
+      this.turnTo(Math.atan2(-d.z, d.x), dt);
+      animateBipedWalk(u, t, 9, 1); u.head.rotation.z = -0.32 + Math.sin(t * 9) * 0.05;
+      waveChain(u.tail, t, 0.12, 4.5);
+      this.walkA = startA; return;
+    }
+    // loop around the card, clockwise when seen from above
+    const speed = 0.32;
+    this.walkA -= speed * dt / Math.hypot(PATH.rx, PATH.rz) * 1.4;
+    const p = pathPt(this.walkA), p2 = pathPt(this.walkA - 0.05);
+    r.position.copy(p);
+    this.turnTo(Math.atan2(-(p2.z - p.z), p2.x - p.x), dt);
+    animateBipedWalk(u, t, 7, 1);
+    u.head.rotation.z = -0.32 + Math.sin(t * 7) * 0.05;
+    waveChain(u.tail, t, 0.1, 3.5);
+    // pause every so often to roar at the long-neck
+    const cyc = (t - T3) % 12;
+    if (cyc > 9 && cyc < 10.5) { const roar = Math.sin((cyc - 9) / 1.5 * Math.PI); u.jaw.rotation.z = -0.65 * roar; u.head.rotation.z = -0.32 + 0.3 * roar; }
+  }
+  turnTo(target, dt) {
+    let d = target - this.trexHeading; d = Math.atan2(Math.sin(d), Math.cos(d));
+    this.trexHeading += d * Math.min(1, dt * 5);
+    this.w.trex.rotation.y = this.trexHeading;
+  }
+  updateLongneck() {
+    const u = this.w.longneck.userData, t = this.t;
+    animateQuadWalk(u, t, 0, 0, 1.05);
+    // grazing: neck dips toward the palm, then looks up
+    const g = (Math.sin(t * 0.5) + 1) / 2;
+    u.neck.joints.forEach((j, i) => { j.rotation.z = 0.24 - g * 0.12 + Math.sin(t * 1.2 - i * 0.5) * 0.02; j.rotation.y = Math.sin(t * 0.7 - i * 0.4) * 0.05; });
+    u.head.rotation.z = -0.9 + g * 0.3;
+    waveChain(u.tail, t, 0.08, 1.3);
+  }
+  updateTrike() {
+    const r = this.w.trike, u = r.userData, t = this.t;
+    if (t < 1.5) return;
+    const a = (t - 1.5) * 0.45, cx = -1.2, cz = 0.62;
+    const x = cx + Math.cos(a) * 0.32, z = cz + Math.sin(a) * 0.2;
+    const dx = -Math.sin(a) * 0.32, dz = Math.cos(a) * 0.2;
+    r.position.set(x, 0, z); r.rotation.y = Math.atan2(-dz, dx);
+    animateQuadWalk(u, t, 6, 1, 0.62);
+    u.head.rotation.z = Math.sin(t * 3) * 0.08 - 0.1;
+    waveChain(u.tail, t, 0.1, 3);
+  }
+  updatePteros() {
+    const t = this.t;
+    this.w.pteros.forEach((p, i) => {
+      const k = easeOutBack((t - 1.6 - i * 0.3) / 0.6); p.scale.setScalar(Math.max(0.0001, k * 0.34));
+      const a = t * 0.5 + i * TAU / 3, R = 1.15 + i * 0.12;
+      p.position.set(Math.cos(a) * R, 1.0 + i * 0.12 + Math.sin(t * 1.3 + i) * 0.06, Math.sin(a) * R * 0.8);
+      p.rotation.y = Math.atan2(-Math.cos(a), -Math.sin(a)); p.rotation.z = 0; p.rotation.x = 0.25;
+      p.userData.wings.forEach(({ pivot, s }) => { pivot.rotation.x = s * (Math.sin(t * 7 + i) * 0.6 - 0.1); });
+    });
+  }
+}
+
+/* ============================== surface modes ============================== */
+// table: card lies flat, world grows up out of it.  wall: card hangs upright, world is a stage in front of it.
+function applySurface(ds, mode, anchored) {
+  const w = ds.world;
+  ds.w.fill.visible = mode === 'wall';
+  if (!anchored) { w.rotation.set(0, 0, 0); w.position.set(0, 0, 0); w.scale.setScalar(1); ds.setSpawn(new THREE.Vector3(0, 0, 0)); return; }
+  if (mode === 'table') {
+    w.rotation.set(Math.PI / 2, 0, 0); w.position.set(0, 0, 0); w.scale.setScalar(1);
+    ds.setSpawn(new THREE.Vector3(0, 0, 0));
+  } else {
+    const s = 0.7; w.rotation.set(0, 0, 0); w.scale.setScalar(s);
+    w.position.set(0, -CARD_H / 2, (RZ + 0.05) * s);
+    // card centre in world-local coords: T-rex jumps out of the picture
+    ds.setSpawn(new THREE.Vector3(0, CARD_H / 2 / s, -(RZ + 0.05)));
+  }
+}
+
+/* ============================== app shell ============================== */
+const $ = id => document.getElementById(id);
+const stage = $('stage');
+let running = null; // { stop() }
+const surface = () => (document.querySelector('input[name="surface"]:checked') || {}).value || 'table';
+
+function lights(scene) {
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xB9D99A, 1.6));
+  const d = new THREE.DirectionalLight(0xffffff, 1.6); d.position.set(1, 3, 2); scene.add(d);
+}
+
+function showStart() {
+  if (running) { running.stop(); running = null; }
+  stage.innerHTML = '';
+  $('start').hidden = false; startHero(); $('back').hidden = true; $('hud').hidden = true; $('hint').hidden = true; $('loading').hidden = true;
+}
+function showErr(msg) { const e = $('err'); e.textContent = msg; e.hidden = false; }
+
+
+// ---------- start-screen hero: the card's T-rex in 3D ----------
+let hero = null;
+function startHero() {
+  if (hero) return;
+  const el = $('hero'), W = el.clientWidth || 240, H = el.clientHeight || 210;
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(W, H); renderer.outputColorSpace = THREE.SRGBColorSpace;
+  el.appendChild(renderer.domElement);
+  const scene = new THREE.Scene(); lights(scene);
+  const camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 20); camera.position.set(0.15, 1.05, 3.4); camera.lookAt(0, 0.62, 0);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.9, 0.12, 40), [toon(C.grass), toon(C.grass), toon(C.grass)]);
+  base.position.y = -0.06; scene.add(base);
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.82, 0.12, 40), toon(C.soil)); rim.position.y = -0.17; scene.add(rim);
+  const rex = makeTrex(); rex.scale.setScalar(0.62); scene.add(rex);
+  const u = rex.userData, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clock = new THREE.Clock(); let raf;
+  const loop = () => {
+    raf = requestAnimationFrame(loop);
+    const t = reduce ? 1.2 : clock.getElapsedTime();
+    rex.rotation.y = Math.PI + 0.3 + Math.sin(t * 0.5) * 0.3;       // mostly facing left, like the card
+    animateBipedWalk(u, t, 0, 0);
+    u.hips.position.y = 0.95 + Math.sin(t * 2.2) * 0.012;               // breathing
+    waveChain(u.tail, t, 0.1, 2.2);
+    const cyc = t % 5, roar = cyc > 3.6 && cyc < 4.8 ? Math.sin((cyc - 3.6) / 1.2 * Math.PI) : 0;
+    u.jaw.rotation.z = -0.1 - 0.6 * roar - 0.05 * Math.sin(t * 2);
+    u.head.rotation.z = -0.32 + 0.3 * roar; u.torso.rotation.z = 0.32 + 0.08 * roar;
+    u.arms.forEach((a, i) => a.rotation.z = Math.sin(t * (roar ? 18 : 3) + i) * (0.1 + 0.2 * roar));
+    renderer.render(scene, camera);
+  };
+  loop();
+  hero = { stop() { cancelAnimationFrame(raf); renderer.dispose(); renderer.forceContextLoss(); el.innerHTML = ''; } };
+}
+function stopHero() { if (hero) { hero.stop(); hero = null; } }
+
+// ---------- 3D preview (no camera) ----------
+function startPreview() {
+  stopHero();
+  $('start').hidden = true; $('back').hidden = false; $('hud').hidden = false; $('err').hidden = true;
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  stage.appendChild(renderer.domElement);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0xBFE6F5);
+  const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 50);
+  const far = innerWidth < innerHeight ? 1.45 : 1; camera.position.set(0, 2.5 * far, 3.3 * far);
+  const controls = new OrbitControls(camera, renderer.domElement); controls.target.set(0, 0.25, 0); controls.enableDamping = true;
+  controls.maxPolarAngle = Math.PI * 0.47; controls.minDistance = 1.5; controls.maxDistance = 7;
+  controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
+  lights(scene);
+  // the printed card, lying where the real one would be
+  const tex = new THREE.TextureLoader().load('target.jpg'); tex.colorSpace = THREE.SRGBColorSpace;
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshBasicMaterial({ map: tex }));
+  card.rotation.x = -Math.PI / 2; card.position.y = 0.001; scene.add(card);
+  const table = new THREE.Mesh(new THREE.CircleGeometry(6, 48), new THREE.MeshBasicMaterial({ color: 0xE8DCCB })); table.rotation.x = -Math.PI / 2; table.position.y = -0.15; scene.add(table);
+
+  const ds = new DinoScene(); applySurface(ds, 'table', false); scene.add(ds.world);
+  $('replay').onclick = () => ds.reset();
+  const clock = new THREE.Clock(); let raf;
+  const onResize = () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); };
+  addEventListener('resize', onResize);
+  const loop = () => { raf = requestAnimationFrame(loop); const dt = Math.min(clock.getDelta(), 0.05); ds.update(dt); controls.update(); renderer.render(scene, camera); };
+  loop();
+  window.__ds = ds; window.__cam = { camera, controls };
+  running = { stop() { cancelAnimationFrame(raf); removeEventListener('resize', onResize); renderer.dispose(); } };
+}
+
+// ---------- camera AR ----------
+async function startAR() {
+  $('err').hidden = true;
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    showErr('The camera needs this page to be opened over HTTPS in a normal browser tab.'); return;
+  }
+  stopHero(); $('start').hidden = true; $('loading').hidden = false; $('back').hidden = false;
+  let mindar;
+  try {
+    const { MindARThree } = await import('mindar-image-three');
+    mindar = new MindARThree({
+      container: stage, imageTargetSrc: new URL('targets.mind', location.href).href,
+      uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+      filterMinCF: 0.0001, filterBeta: 0.001, warmupTolerance: 2, missTolerance: 8
+    });
+    const { renderer, scene, camera } = mindar;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    lights(scene);
+    const ds = new DinoScene(); const mode = surface(); applySurface(ds, mode, true);
+    const anchor = mindar.addAnchor(0); anchor.group.add(ds.world);
+    let found = false, lostAt = 0;
+    anchor.onTargetFound = () => { found = true; $('hint').hidden = true; $('hud').hidden = false; if (performance.now() - lostAt > 6000 && lostAt) ds.reset(); };
+    anchor.onTargetLost = () => { found = false; lostAt = performance.now(); $('hint').hidden = false; };
+    $('replay').onclick = () => ds.reset();
+    await mindar.start();
+    $('loading').hidden = true; $('hint').hidden = false;
+    const clock = new THREE.Clock();
+    renderer.setAnimationLoop(() => { const dt = Math.min(clock.getDelta(), 0.05); if (found) ds.update(dt); renderer.render(scene, camera); });
+    running = { stop() { renderer.setAnimationLoop(null); try { mindar.stop(); } catch (e) {} } };
+  } catch (e) {
+    console.error(e);
+    try { mindar && mindar.stop(); } catch (_) {}
+    showStart();
+    showErr(/Permission|NotAllowed|denied/i.test(String(e && (e.name + e.message))) ? 'Camera access was blocked. Allow the camera for this site and try again.' : 'The camera could not start here. Open the page in Chrome or Safari over HTTPS, or use Preview in 3D.');
+  }
+}
+
+$('startAR').onclick = startAR;
+$('startPreview').onclick = startPreview;
+$('back').onclick = showStart;
+if (location.hash === '#preview') startPreview(); else startHero();
+</script>
+</body>
+</html>
