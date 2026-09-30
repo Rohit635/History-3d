@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Dino Card AR</title>
+<title>Past &amp; Present AR</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@500;700&display=swap">
 <style>
@@ -73,9 +73,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--body); ov
 
 <section id="start">
   <div class="panel">
-    <div class="hero3d" id="hero" role="img" aria-label="Animated 3D T-rex"></div>
-    <h1>Dino Card <span>AR</span></h1>
-    <p>Point your phone at the T-rex card and a little prehistoric world grows around it.</p>
+    <div class="hero3d" id="hero" role="img" aria-label="Animated 3D T-rex and cyclist"></div>
+    <h1>Past &amp; Present <span>AR</span></h1>
+    <p>Point your phone at a card. Each card grows its own world: dinosaurs, a Stone Age camp, or a busy little city.</p>
     <div class="eyebrow">Where is the card?</div>
     <div class="seg" role="radiogroup" aria-label="Card placement">
       <label><input type="radio" name="surface" id="surfTable" value="table" checked><span>Lying flat</span></label>
@@ -89,8 +89,8 @@ body { background: var(--paper); color: var(--ink); font-family: var(--body); ov
 </section>
 
 <button class="btn ghost" id="back" hidden>← Back</button>
-<div id="hint" hidden><div class="frame"><div class="hinttext">Fit the dinosaur card in the frame</div></div></div>
-<div id="hud" hidden><button class="btn" id="replay">Replay</button></div>
+<div id="hint" hidden><div class="frame"><div class="hinttext">Fit a card in the frame</div></div></div>
+<div id="hud" hidden><button class="btn ghost" id="swapWorld" hidden>Show Present</button><button class="btn" id="replay">Replay</button></div>
 <div id="loading" hidden>Waking the dinosaurs…</div>
 
 <script type="importmap">
@@ -103,6 +103,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--body); ov
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /* ============================== palette ============================== */
 const C = {
@@ -343,7 +344,7 @@ function makePtero() {
 }
 
 /* ============================== environment ============================== */
-function makeGround(rx, rz, holeW, holeH) {
+function makeGround(rx, rz, holeW, holeH, top = C.grass, side = C.soil) {
   const outer = new THREE.Shape();
   const N = 64;
   for (let i = 0; i <= N; i++) {
@@ -359,7 +360,7 @@ function makeGround(rx, rz, holeW, holeH) {
   }
   const geo = new THREE.ExtrudeGeometry(outer, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2, curveSegments: 8 });
   geo.rotateX(-Math.PI / 2); geo.translate(0, -0.14, 0);
-  const m = new THREE.Mesh(geo, [toon(C.grass), toon(C.soil)]);
+  const m = new THREE.Mesh(geo, [toon(top), toon(side)]);
   return m;
 }
 
@@ -436,7 +437,6 @@ function makeCloud() {
 
 /* ============================== world assembly ============================== */
 const RX = 1.95, RZ = 1.5, HOLE_W = 1.12, HOLE_H = CARD_H + 0.1;
-const PATH = { rx: 0.98, rz: 0.82 };   // T-rex loop around the card
 
 function buildWorld() {
   const world = new THREE.Group();
@@ -500,8 +500,9 @@ function waveChain(ch, t, amp, speed, axis = 'y', phase = 0.7) {
 }
 
 class DinoScene {
-  constructor() { this.w = buildWorld(); this.reset(); }
+  constructor() { this.w = buildWorld(); this.RZ = RZ; this.cardH = CARD_H; this.wallRest = new THREE.Vector3(0, 0, -0.85); this.reset(); }
   get world() { return this.w.world; }
+  get fill() { return this.w.fill; }
   reset() {
     this.t = 0;
     const w = this.w;
@@ -510,7 +511,7 @@ class DinoScene {
     w.trex.scale.setScalar(0.0001); w.pteros.forEach(p => p.scale.setScalar(0.0001));
     this.trexHeading = Math.PI; // faces left, like the card
   }
-  setSpawn(v) { this.spawn = v.clone(); }
+  setSpawn(v, rest) { this.spawn = v.clone(); this.rest = (rest || v).clone(); }
   update(dt) {
     this.t += dt; const t = this.t, w = this.w;
     // 1. Ground grows out from the card
@@ -537,11 +538,9 @@ class DinoScene {
   }
   updateTrex(dt) {
     const w = this.w, r = w.trex, u = r.userData, t = this.t;
-    const T0 = 0.6, T1 = 1.5, T2 = 2.9, T3 = 4.1;   // emerge, roar, hop off, walk
+    const T0 = 0.6, T1 = 1.5, T2 = 2.9, T3 = 4.1;   // emerge, roar, settle, idle
     const spawn = this.spawn || new THREE.Vector3();
-    const S = 0.36;
-    const startA = Math.PI; // path point at (-rx, 0)
-    const pathPt = a => new THREE.Vector3(Math.cos(a) * PATH.rx, 0, Math.sin(a) * PATH.rz);
+    const S = 0.42;
     if (t < T0) { r.scale.setScalar(0.0001); return; }
     if (t < T1) {                       // rises out of the card
       const k = (t - T0) / (T1 - T0);
@@ -565,27 +564,30 @@ class DinoScene {
     }
     u.jaw.rotation.z = -0.08 - 0.06 * Math.sin(t * 2); u.head.rotation.y = 0; u.torso.rotation.z = 0.32;
     u.arms.forEach((a, i) => a.rotation.z = Math.sin(t * 7 + i) * 0.15);
-    if (t < T3) {                       // hop from the card onto the trail
-      const k = smooth((t - T2) / (T3 - T2)), target = pathPt(startA);
-      r.position.lerpVectors(spawn, target, k); r.position.y = THREE.MathUtils.lerp(spawn.y, 0, k) + Math.sin(k * Math.PI) * 0.08;
-      const d = new THREE.Vector3().subVectors(target, spawn);
-      this.turnTo(Math.atan2(-d.z, d.x), dt);
-      animateBipedWalk(u, t, 9, 1); u.head.rotation.z = -0.32 + Math.sin(t * 9) * 0.05;
-      waveChain(u.tail, t, 0.12, 4.5);
-      this.walkA = startA; return;
+    const rest = this.rest || spawn;
+    if (t < T3) {                       // settle on its spot (on a wall card: hop down in front of it)
+      const k = smooth((t - T2) / (T3 - T2));
+      r.position.lerpVectors(spawn, rest, k); r.position.y = THREE.MathUtils.lerp(spawn.y, rest.y, k) + (spawn.distanceTo(rest) > 0.01 ? Math.sin(k * Math.PI) * 0.1 : 0);
+      animateBipedWalk(u, t, spawn.distanceTo(rest) > 0.01 ? 9 : 0, spawn.distanceTo(rest) > 0.01 ? 1 : 0);
+      waveChain(u.tail, t, 0.1, 3);
+      return;
     }
-    // loop around the card, clockwise when seen from above
-    const speed = 0.32;
-    this.walkA -= speed * dt / Math.hypot(PATH.rx, PATH.rz) * 1.4;
-    const p = pathPt(this.walkA), p2 = pathPt(this.walkA - 0.05);
-    r.position.copy(p);
-    this.turnTo(Math.atan2(-(p2.z - p.z), p2.x - p.x), dt);
-    animateBipedWalk(u, t, 7, 1);
-    u.head.rotation.z = -0.32 + Math.sin(t * 7) * 0.05;
-    waveChain(u.tail, t, 0.1, 3.5);
-    // pause every so often to roar at the long-neck
-    const cyc = (t - T3) % 12;
-    if (cyc > 9 && cyc < 10.5) { const roar = Math.sin((cyc - 9) / 1.5 * Math.PI); u.jaw.rotation.z = -0.65 * roar; u.head.rotation.z = -0.32 + 0.3 * roar; }
+    // stays put in one place so you can walk around it; looks around, shifts its weight, roars now and then
+    r.position.copy(rest);
+    const LOOK = [Math.PI, Math.PI - 1.0, Math.PI + 0.9, Math.PI - 0.4];
+    const cyc = (t - T3) % 24, idx = Math.floor(cyc / 6), local = cyc % 6;
+    const before = this.trexHeading;
+    this.turnTo(LOOK[idx], dt * 0.35);
+    const turning = Math.min(1, Math.abs(this.trexHeading - before) / Math.max(dt, 1e-3) * 1.5);
+    animateBipedWalk(u, t, 6, turning * 0.6);        // little steps only while turning on the spot
+    u.hips.position.y = 0.95 + Math.sin(t * 2.2) * 0.012 * (1 - turning);
+    u.head.rotation.y = Math.sin(t * 0.9) * 0.25;
+    waveChain(u.tail, t, 0.1, 2.4);
+    if (local > 3.5 && local < 5) {
+      const roar = Math.sin((local - 3.5) / 1.5 * Math.PI);
+      u.jaw.rotation.z = -0.65 * roar; u.head.rotation.z = -0.32 + 0.32 * roar; u.torso.rotation.z = 0.32 + 0.1 * roar;
+      u.arms.forEach(a => a.rotation.z = Math.sin(t * 20) * 0.3 * roar);
+    } else u.head.rotation.z = -0.32 + Math.sin(t * 1.3) * 0.04;
   }
   turnTo(target, dt) {
     let d = target - this.trexHeading; d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -624,22 +626,631 @@ class DinoScene {
   }
 }
 
+/* ============================== city (the "Present" card) ============================== */
+const CITY_H = 805 / 1000;
+const K = {
+  road: 0x5E6472, dash: 0xFFFFFF, walk: 0xE9E4DA, walkSide: 0xB7AE9F, grass: 0x8FCB5A,
+  bike: 0x3446C4, navy: 0x1F2A6B, rim: 0x9FB3E0, phone: 0x3552D6, hoodie: 0xCBCED8, pants: 0xC4262E,
+  skin: 0xC98A5C, hair: 0x3B2418, helmet: 0x2E4BB5, bag: 0x1E2230, shoe: 0xF7F7F7, glass: 0xBFE3FA,
+  tree: 0x5DB54A, tree2: 0x7CC956, trunk: 0x8A5A3B, pole: 0x8C93A3
+};
+const BUILD_COLORS = [0x7FB8E6, 0x5B8FD9, 0xF4E3C1, 0xF28B6B, 0x8FD1B5, 0xF6C85F, 0xB9A7E8, 0x9CC8F0];
+const shade = (c, f) => { const col = new THREE.Color(c); col.multiplyScalar(f); return col.getHex(); };
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function roundedRect(hw, hh, r, p = new THREE.Shape()) {
+  p.moveTo(-hw + r, -hh); p.lineTo(hw - r, -hh); p.absarc(hw - r, -hh + r, r, -Math.PI / 2, 0, false);
+  p.lineTo(hw, hh - r); p.absarc(hw - r, hh - r, r, 0, Math.PI / 2, false);
+  p.lineTo(-hw + r, hh); p.absarc(-hw + r, hh - r, r, Math.PI / 2, Math.PI, false);
+  p.lineTo(-hw, -hh + r); p.absarc(-hw + r, -hh + r, r, Math.PI, Math.PI * 1.5, false);
+  return p;
+}
+const flat = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = y; return m; };
+
+const winTexCache = {};
+function windowTex(color) {
+  if (winTexCache[color]) return winTexCache[color];
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d');
+  g.fillStyle = hex(color); g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#FFFFFF'; g.fillRect(13, 11, 38, 42);
+  g.fillStyle = hex(K.glass); g.fillRect(16, 14, 32, 36);
+  g.fillStyle = 'rgba(255,255,255,.75)'; g.beginPath(); g.moveTo(18, 40); g.lineTo(34, 16); g.lineTo(40, 16); g.lineTo(24, 40); g.fill();
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return (winTexCache[color] = t);
+}
+function makeBuilding(w, d, h, color, rnd) {
+  const g = new THREE.Group();
+  const mk = (a) => { const t = windowTex(color).clone(); t.needsUpdate = true; t.repeat.set(Math.max(1, Math.round(a * 8)), Math.max(1, Math.round(h * 8))); return toon(0xffffff, { map: t }); };
+  const sw = mk(w), sd = mk(d), roof = toon(shade(color, 0.82));
+  const geo = new THREE.BoxGeometry(w, h, d); geo.translate(0, h / 2, 0);
+  g.add(new THREE.Mesh(geo, [sd, sd, roof, roof, sw, sw]));
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(w + 0.03, 0.03, d + 0.03), toon(shade(color, 0.7))), 0, h + 0.015, 0));
+  const r = rnd();
+  if (r < 0.35) { const tank = new THREE.Mesh(cylGeo, toon(0xB08A6A)); tank.scale.set(0.09, 0.1, 0.09); tank.position.set(w * 0.2, h + 0.08, -d * 0.15); g.add(tank); g.add(at(cone(0.055, 0.05, toon(0x8C6A4E)), w * 0.2, h + 0.155, -d * 0.15)); }
+  else if (r < 0.7) { g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.08), toon(0xDADDE3)), -w * 0.18, h + 0.06, d * 0.1)); }
+  return g;
+}
+function makeCityTree(s = 1) {
+  const g = new THREE.Group();
+  const tr = new THREE.Mesh(cylGeo, toon(K.trunk)); tr.scale.set(0.035, 0.16, 0.035); tr.position.y = 0.08; g.add(tr);
+  g.add(at(ball(0.1, toon(K.tree)), 0, 0.22, 0)); g.add(at(ball(0.075, toon(K.tree2)), 0.05, 0.28, 0.03)); g.add(at(ball(0.065, toon(K.tree)), -0.05, 0.27, -0.02));
+  g.scale.setScalar(s); return g;
+}
+function makeLamp() {
+  const g = new THREE.Group(), m = toon(K.pole);
+  const p = new THREE.Mesh(cylGeo, m); p.scale.set(0.018, 0.34, 0.018); p.position.y = 0.17; g.add(p);
+  const arm = new THREE.Mesh(cylGeo, m); arm.scale.set(0.012, 0.09, 0.012); arm.rotation.z = Math.PI / 2; arm.position.set(0.04, 0.34, 0); g.add(arm);
+  g.add(at(blob(0.07, 0.03, 0.05, toon(0xFFE9A8, { emissive: 0xFFD66B, emissiveIntensity: 0.4 }), sphereGeo), 0.085, 0.325, 0));
+  return g;
+}
+function makeTrafficLight() {
+  const g = new THREE.Group();
+  const p = new THREE.Mesh(cylGeo, toon(0x3A3F4B)); p.scale.set(0.02, 0.36, 0.02); p.position.y = 0.18; g.add(p);
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.05), toon(0x2A2E38)), 0, 0.42, 0));
+  const lights = [0xE4463B, 0xF6C21C, 0x3DB94E].map((c, i) => { const l = ball(0.019, new THREE.MeshBasicMaterial({ color: c })); l.position.set(0, 0.47 - i * 0.05, 0.027); g.add(l); return l; });
+  g.userData.lights = lights; return g;
+}
+function makeCellTower() {
+  const g = new THREE.Group(), m = toon(0xD9DCE3);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.03, 0.45, 6), m); mast.position.y = 0.225; g.add(mast);
+  for (let i = 0; i < 3; i++) { const a = i / 3 * TAU; const pnl = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.035), toon(0xF4F4F4)); pnl.position.set(Math.cos(a) * 0.03, 0.38, Math.sin(a) * 0.03); pnl.rotation.y = -a; g.add(pnl); }
+  const beacon = ball(0.02, new THREE.MeshBasicMaterial({ color: 0xFF3B30 })); beacon.position.y = 0.46; g.add(beacon);
+  const waves = [];
+  for (let i = 0; i < 3; i++) { const w = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.006, 6, 24, Math.PI * 0.6), new THREE.MeshBasicMaterial({ color: 0x3D63D9, transparent: true })); w.position.y = 0.4; w.rotation.z = Math.PI * 0.2; g.add(w); waves.push(w); }
+  g.userData = { beacon, waves }; return g;
+}
+function makeCar(color, kind = 'car') {
+  const g = new THREE.Group(), glass = toon(K.glass), tyre = toon(0x23262E), body = toon(color);
+  if (kind === 'bus') {
+    g.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.44, 0.14, 0.14, 2, 0.03), body), 0, 0.1, 0));
+    g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.045, 0.145), glass), -0.02, 0.13, 0));
+    g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.06, 0.11), glass), 0.221, 0.12, 0));
+    for (const x of [-0.13, 0.14]) for (const z of [-0.065, 0.065]) { const w = new THREE.Mesh(cylGeo, tyre); w.rotation.x = Math.PI / 2; w.scale.set(0.07, 0.02, 0.07); w.position.set(x, 0.035, z); g.add(w); }
+  } else {
+    g.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.07, 0.12, 2, 0.025), body), 0, 0.06, 0));
+    g.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.06, 0.106, 2, 0.02), glass), -0.015, 0.115, 0));
+    g.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.02, 0.11, 2, 0.008), body), -0.015, 0.145, 0));
+    for (const x of [-0.075, 0.075]) for (const z of [-0.058, 0.058]) { const w = new THREE.Mesh(cylGeo, tyre); w.rotation.x = Math.PI / 2; w.scale.set(0.06, 0.02, 0.06); w.position.set(x, 0.03, z); g.add(w); }
+    for (const z of [-0.035, 0.035]) g.add(at(ball(0.012, new THREE.MeshBasicMaterial({ color: 0xFFF3B0 })), 0.12, 0.065, z));
+  }
+  g.add(blobShadow(kind === 'bus' ? 0.5 : 0.3, 0.18));
+  return g;
+}
+function makeDrone() {
+  const g = new THREE.Group(), m = toon(0xF4F4F4), dark = toon(0x2A2E38);
+  g.add(new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.035, 0.1, 2, 0.012), m));
+  g.add(at(ball(0.012, new THREE.MeshBasicMaterial({ color: 0x3DB94E })), 0.05, 0, 0));
+  const props = [];
+  for (const [x, z] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const arm = new THREE.Mesh(cylGeo, dark); arm.scale.set(0.01, 0.1, 0.01); arm.rotation.set(Math.PI / 2, 0, 0); arm.rotation.z = Math.atan2(z, x); arm.position.set(x * 0.045, 0, z * 0.045);
+    arm.rotation.set(0, -Math.atan2(z, x), Math.PI / 2); g.add(arm);
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.004, 0.014), dark); p.position.set(x * 0.075, 0.025, z * 0.075); g.add(p); props.push(p);
+  }
+  // tiny parcel
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.05), toon(0xC89A5E)), 0, -0.045, 0));
+  g.userData.props = props; return g;
+}
+
+/* ---- the boy on the bike, as on the card ---- */
+const UP = new THREE.Vector3(0, 1, 0);
+const V = (x, y, z = 0) => new THREE.Vector3(x, y, z);
+function tube(r, mat) { const m = new THREE.Mesh(cylGeo, mat); m.userData.r = r; return m; }
+const _d = new THREE.Vector3();
+function setTube(m, a, b) {
+  _d.subVectors(b, a); const L = _d.length();
+  m.position.copy(a).addScaledVector(_d, 0.5); m.quaternion.setFromUnitVectors(UP, _d.normalize()); m.scale.set(m.userData.r * 2, L, m.userData.r * 2); return m;
+}
+function makeWheel() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.045, 10, 36), toon(K.navy)));
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(0.255, 0.016, 6, 36), toon(K.rim)));
+  const spokeM = toon(0xB8C2DC);
+  for (let i = 0; i < 8; i++) { const s = new THREE.Mesh(cylGeo, spokeM); s.scale.set(0.012, 0.5, 0.012); s.rotation.z = i / 8 * Math.PI; g.add(s); }
+  g.add(ball(0.04, toon(K.navy)));
+  return g;
+}
+function makeCyclist() {
+  const root = new THREE.Group(), bike = new THREE.Group(); root.add(bike);
+  const frame = toon(K.bike), black = toon(0x1E2230);
+  const RH = V(-0.55, 0.34), BB = V(-0.08, 0.3), ST = V(-0.2, 0.8), HT = V(0.36, 0.82), HB = V(0.42, 0.62), FH = V(0.55, 0.34), BAR = V(0.33, 0.97);
+  const rear = makeWheel(), front = makeWheel(); rear.position.copy(RH); front.position.copy(FH); bike.add(rear, front);
+  [[BB, ST], [ST, HT], [BB, HB], [RH, BB], [RH, ST], [HB, FH], [HT, HB], [HT, BAR]].forEach(([a, b]) => bike.add(setTube(tube(0.03, frame), a, b)));
+  bike.add(setTube(tube(0.022, black), V(BAR.x, BAR.y, -0.17), V(BAR.x, BAR.y, 0.17)));
+  bike.add(at(ball(0.035, black), BAR.x, BAR.y, 0.17)); bike.add(at(ball(0.035, black), BAR.x, BAR.y, -0.17));
+  bike.add(at(blob(0.2, 0.06, 0.11, black), ST.x - 0.02, ST.y + 0.05, 0));
+  const ring = new THREE.Mesh(cylGeo, toon(0x6F8BE0)); ring.scale.set(0.18, 0.02, 0.18); ring.rotation.x = Math.PI / 2; ring.position.copy(BB); ring.position.z = 0.03; bike.add(ring);
+  const cranks = [tube(0.016, toon(0x8C93A3)), tube(0.016, toon(0x8C93A3))]; bike.add(...cranks);
+
+  // rider
+  const hoodie = toon(K.hoodie), pants = toon(K.pants), skinM = toon(K.skin);
+  const HIP = V(-0.2, 0.92), LEAN = -0.5;
+  const torso = grp(HIP.x, HIP.y, 0); torso.rotation.z = LEAN; bike.add(torso);
+  torso.add(at(blob(0.3, 0.52, 0.3, hoodie, sphereGeo), 0.0, 0.25, 0));
+  torso.add(at(ball(0.1, hoodie), -0.07, 0.47, 0));                                   // hood
+  torso.add(at(blob(0.18, 0.38, 0.28, toon(K.bag), sphereGeo), -0.17, 0.27, 0));       // backpack
+  for (const s of [1, -1]) torso.add(setTube(tube(0.018, toon(K.bag)), V(-0.1, 0.42, 0.1 * s), V(0.06, 0.2, 0.13 * s)));
+  const head = grp(0.106, 1.44, 0); bike.add(head);
+  head.add(ball(0.15, skinM));
+  const helmetM = toon(K.helmet);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.168, 20, 12, 0, TAU, 0, Math.PI * 0.52), helmetM); helmet.position.y = 0.02; helmet.rotation.z = -0.15; head.add(helmet);
+  head.add(at(blob(0.12, 0.025, 0.2, helmetM), 0.16, 0.035, 0));                        // visor
+  head.add(at(blob(0.1, 0.07, 0.3, toon(K.hair)), 0.05, 0.0, 0));                       // hair under helmet
+  for (const s of [1, -1]) { head.add(at(ball(0.022, toon(0x1B1210)), 0.12, 0.0, 0.075 * s)); head.add(at(ball(0.035, skinM), -0.01, -0.01, 0.145 * s)); }
+  head.add(at(ball(0.025, skinM), 0.155, -0.02, 0));                                     // nose
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.008, 6, 12, Math.PI), toon(0x8E1F22)); smile.position.set(0.13, -0.065, 0); smile.rotation.set(0, Math.PI / 2, Math.PI); head.add(smile);
+  const shoulder = V(HIP.x + 0.44 * Math.sin(-LEAN), HIP.y + 0.44 * Math.cos(LEAN));
+  for (const s of [1, -1]) {
+    const sh = V(shoulder.x, shoulder.y, 0.13 * s), hand = V(BAR.x, BAR.y + 0.02, 0.15 * s), elbow = sh.clone().lerp(hand, 0.5).add(V(0.02, -0.06));
+    bike.add(setTube(tube(0.05, hoodie), sh, elbow), setTube(tube(0.045, hoodie), elbow, hand), at(ball(0.045, skinM), hand.x, hand.y, hand.z));
+  }
+  const legs = [1, -1].map(s => {
+    const thigh = tube(0.065, pants), shin = tube(0.055, pants), knee = ball(0.06, pants);
+    const shoe = new THREE.Group(); shoe.add(blob(0.17, 0.08, 0.09, toon(K.shoe))); shoe.add(at(blob(0.18, 0.025, 0.095, toon(0xB9BCC6)), 0, -0.035, 0));
+    bike.add(thigh, shin, knee, shoe); return { s, thigh, shin, knee, shoe };
+  });
+  root.add(blobShadow(1.5, 0.5));
+  root.userData = { rear, front, cranks, legs, head, BB, HIP, crank: 0 };
+  return root;
+}
+const _hip = new THREE.Vector3(), _ped = new THREE.Vector3(), _knee = new THREE.Vector3();
+function animateCyclist(c, dt, spin) {
+  const u = c.userData; u.crank -= dt * spin;
+  u.rear.rotation.z = u.front.rotation.z = u.crank * 1.6;
+  const L1 = 0.42, L2 = 0.42, R = 0.17;
+  u.legs.forEach(({ s, thigh, shin, knee, shoe }, i) => {
+    const a = u.crank + (i ? Math.PI : 0);
+    _ped.set(u.BB.x + Math.cos(a) * R, u.BB.y + Math.sin(a) * R, 0.1 * s);
+    _hip.set(u.HIP.x, u.HIP.y - 0.02, 0.09 * s);
+    const dx = _ped.x - _hip.x, dy = _ped.y - _hip.y, dist = Math.min(Math.hypot(dx, dy), L1 + L2 - 0.001);
+    const th = Math.atan2(dy, dx), k = Math.acos(THREE.MathUtils.clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1));
+    _knee.set(_hip.x + Math.cos(th + k) * L1, _hip.y + Math.sin(th + k) * L1, 0.095 * s);
+    setTube(thigh, _hip, _knee); setTube(shin, _knee, _ped); knee.position.copy(_knee);
+    shoe.position.set(_ped.x + 0.03, _ped.y + 0.03, _ped.z); shoe.rotation.z = Math.sin(a) * 0.15;
+    setTube(u.cranks[i], V(u.BB.x, u.BB.y, 0.06 * s), V(_ped.x, _ped.y, 0.06 * s));
+  });
+}
+
+/* ---- the giant phone with a live clock ---- */
+function rr(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function makeBigPhone() {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512; const g = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const draw = () => {
+    const sky = g.createLinearGradient(0, 0, 0, 330); sky.addColorStop(0, '#4FB3EA'); sky.addColorStop(1, '#BFE6FA');
+    g.fillStyle = sky; g.fillRect(0, 0, 256, 512);
+    g.fillStyle = '#fff'; [[40, 170, 22], [62, 162, 26], [86, 172, 18], [180, 200, 20], [200, 192, 24], [222, 202, 16]].forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); });
+    g.fillStyle = '#7FB0E0'; [[60, 250, 26, 70], [92, 225, 30, 95], [128, 240, 22, 80], [156, 215, 28, 105], [190, 245, 26, 75]].forEach(([x, y, w, h]) => g.fillRect(x, y, w, h));
+    g.fillStyle = '#5DB54A'; g.beginPath(); g.ellipse(40, 320, 90, 55, 0, 0, TAU); g.fill(); g.beginPath(); g.ellipse(230, 322, 90, 50, 0, 0, TAU); g.fill();
+    g.fillStyle = '#D6EEFB'; g.fillRect(0, 318, 256, 194);
+    const d = new Date(), hh = d.getHours() % 12 || 12, mm = String(d.getMinutes()).padStart(2, '0');
+    g.fillStyle = '#fff'; g.font = '800 64px "Baloo 2", "Nunito", sans-serif'; g.textAlign = 'center'; g.fillText(`${hh}:${mm}`, 128, 118);
+    g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(24, 26, 4, 8); g.fillRect(31, 22, 4, 12); g.fillRect(38, 18, 4, 16); rr(g, 206, 20, 26, 13, 4); g.fill();
+    rr(g, 96, 470, 64, 8, 4); g.fillStyle = 'rgba(30,40,70,.35)'; g.fill();
+    const icons = ['#3DB94E', '#F29A2E', '#E4463B', '#7B5CE0', '#3D63D9', '#3DB94E'];
+    icons.forEach((c, i) => {
+      const x = 30 + (i % 3) * 72, y = 345 + Math.floor(i / 3) * 62; rr(g, x, y, 52, 52, 13); g.fillStyle = c; g.fill();
+      g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineWidth = 5; const cx = x + 26, cy = y + 26;
+      if (i === 0) { g.beginPath(); g.arc(cx, cy, 12, 0.9, 2.6); g.stroke(); }
+      if (i === 1) { rr(g, cx - 15, cy - 11, 30, 20, 6); g.fill(); g.fillStyle = c; [-7, 0, 7].forEach(o => { g.beginPath(); g.arc(cx + o, cy - 1, 2.5, 0, TAU); g.fill(); }); }
+      if (i === 2) { rr(g, cx - 15, cy - 10, 30, 22, 5); g.fill(); g.fillStyle = c; g.beginPath(); g.arc(cx, cy + 1, 6, 0, TAU); g.fill(); }
+      if (i === 3) { g.beginPath(); g.moveTo(cx - 14, cy + 10); g.lineTo(cx - 3, cy - 6); g.lineTo(cx + 4, cy + 3); g.lineTo(cx + 9, cy - 2); g.lineTo(cx + 14, cy + 10); g.fill(); g.beginPath(); g.arc(cx + 8, cy - 10, 3.5, 0, TAU); g.fill(); }
+      if (i === 4) { g.beginPath(); g.arc(cx, cy, 11, 0, TAU); g.stroke(); g.beginPath(); g.arc(cx, cy, 4, 0, TAU); g.fill(); }
+      if (i === 5) { g.beginPath(); g.arc(cx, cy - 4, 9, Math.PI * 0.85, Math.PI * 2.15); g.lineTo(cx, cy + 14); g.closePath(); g.fill(); g.fillStyle = c; g.beginPath(); g.arc(cx, cy - 4, 3.5, 0, TAU); g.fill(); }
+    });
+    tex.needsUpdate = true;
+  };
+  draw();
+  const g3 = new THREE.Group();
+  g3.add(new THREE.Mesh(new RoundedBoxGeometry(0.52, 1.0, 0.08, 4, 0.07), toon(K.phone)));
+  const screenMat = new THREE.MeshBasicMaterial({ map: tex, color: 0x000000 });
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.9), screenMat); screen.position.z = 0.041; g3.add(screen);
+  g3.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.025, 0.01, 2, 0.01), toon(0x10131C)), 0, 0.42, 0.045));
+  for (const y of [0.25, 0.12]) g3.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.09, 0.03), toon(shade(K.phone, 0.8))), 0.265, y, 0));
+  g3.userData = { draw, screenMat };
+  return g3;
+}
+
+/* ---- assemble the city ---- */
+const CITY = { hw: 1.95, hh: 1.62, holeW: 1.12, holeH: CITY_H + 0.1 };
+const LANE_OUT = roundedRect(0.875, 0.765, 0.285, new THREE.Path()), LANE_IN = roundedRect(0.705, 0.595, 0.115, new THREE.Path());
+const CENTER = roundedRect(0.79, 0.68, 0.2, new THREE.Path());
+
+class CityScene {
+  constructor() {
+    this.RZ = CITY.hh; this.cardH = CITY_H;
+    const world = new THREE.Group(); this.world = world;
+    const items = []; this.items = items; this.risers = [];
+    const add = (o, x, z, delay, s = 1, ry = 0) => { o.position.x = x; o.position.z = z; o.rotation.y = ry; o.scale.setScalar(0.0001); world.add(o); items.push({ obj: o, delay, s }); return o; };
+    const rnd = rng(7);
+
+    // pavement platform with a hole for the card, ring road, crossing and a small park
+    const plat = roundedRect(CITY.hw, CITY.hh, 0.32); plat.holes.push(roundedRect(CITY.holeW / 2, CITY.holeH / 2, 0.05, new THREE.Path()));
+    const pg = new THREE.ExtrudeGeometry(plat, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2, curveSegments: 8 });
+    pg.rotateX(-Math.PI / 2); pg.translate(0, -0.14, 0);
+    this.ground = new THREE.Group(); world.add(this.ground);
+    this.ground.add(new THREE.Mesh(pg, [toon(K.walk), toon(K.walkSide)]));
+    const roadShape = roundedRect(0.96, 0.85, 0.3); roadShape.holes.push(roundedRect(0.62, 0.51, 0.08, new THREE.Path()));
+    this.ground.add(flat(new THREE.ShapeGeometry(roadShape, 12), toon(K.road), 0.003));
+    const dashM = new THREE.MeshBasicMaterial({ color: K.dash });
+    CENTER.getSpacedPoints(56).forEach((p, i, arr) => {
+      if (i % 2 || i === arr.length - 1) return; const q = arr[i + 1];
+      const m = flat(new THREE.PlaneGeometry(0.05, 0.012), dashM, 0.005); m.position.x = p.x; m.position.z = p.y; m.rotation.z = Math.atan2(q.y - p.y, q.x - p.x) * -1; this.ground.add(m);
+    });
+    for (let i = 0; i < 5; i++) { const m = flat(new THREE.PlaneGeometry(0.035, 0.3), dashM, 0.006); m.position.set(-0.14 + i * 0.07, 0.006, 0.68); this.ground.add(m); }
+    const park = flat(new THREE.ShapeGeometry(roundedRect(0.55, 0.3, 0.12), 8), toon(K.grass), 0.004); park.position.set(-1.25, 0.004, 1.25); this.ground.add(park);
+    this.fill = flat(new THREE.PlaneGeometry(CITY.holeW + 0.02, CITY.holeH + 0.02), toon(K.walk), -0.002); this.fill.visible = false; world.add(this.fill);
+
+    // buildings: tall row at the back, medium on the sides, low shops at the front so the card stays in view
+    const building = (x, z, w, d, h, delay) => { const b = makeBuilding(w, d, h, BUILD_COLORS[Math.floor(rnd() * BUILD_COLORS.length)], rnd); b.position.set(x, 0, z); b.scale.set(1, 0.0001, 1); world.add(b); this.risers.push({ obj: b, delay }); return b; };
+    const backs = [];
+    for (let i = 0; i < 9; i++) { const x = -1.7 + i * 0.425; backs.push(building(x, -1.3, 0.37, 0.42, i === 6 ? 1.55 : 0.7 + rnd() * 0.6, 0.3 + Math.abs(x) * 0.12)); }
+    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) { const z = -0.75 + i * 0.37; building(1.46 * sx, z, 0.36, 0.33, 0.45 + rnd() * 0.45, 0.35 + i * 0.05); }
+    for (let i = 0; i < 4; i++) building(0.42 + i * 0.4, 1.32, 0.36, 0.34, 0.2 + rnd() * 0.16, 0.5 + i * 0.05);
+    // antenna on the tall tower, phone mast on another roof
+    const tall = backs[6]; const ant = new THREE.Mesh(cylGeo, toon(0xD9DCE3)); ant.scale.set(0.012, 0.25, 0.012); ant.position.y = 1.55 + 0.14; tall.add(ant);
+    this.towerLight = ball(0.02, new THREE.MeshBasicMaterial({ color: 0xFF3B30 })); this.towerLight.position.y = 1.83; tall.add(this.towerLight);
+    this.cell = makeCellTower(); this.cell.position.y = backs[1].children[0].geometry.parameters.height + 0.03; backs[1].add(this.cell);
+
+    // street furniture
+    [[1.11, -0.62], [1.11, 0.2], [-1.11, -0.62], [-1.11, 0.2], [-0.2, -0.99], [0.62, -0.99], [-1.55, 1.1], [-1.2, 1.38], [-0.9, 1.12], [1.62, 0.98]].forEach(([x, z], i) => add(makeCityTree(0.9 + (i % 3) * 0.12), x, z, 0.7 + i * 0.04));
+    [[1.12, -0.2], [-1.12, -0.2], [0.2, -0.98], [-0.62, -0.98], [1.12, 0.62], [-1.12, 0.62]].forEach(([x, z], i) => add(makeLamp(), x, z, 0.8 + i * 0.04, 1, x > 0 ? Math.PI : 0));
+    this.traffic = add(makeTrafficLight(), 1.02, 0.95, 0.9, 1, -Math.PI / 4);
+    const bench = new THREE.Group(); bench.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.07), toon(0xC8864A)), 0, 0.07, 0)); bench.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.015), toon(0xC8864A)), 0, 0.11, -0.03)); for (const x of [-0.08, 0.08]) bench.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.07, 0.06), toon(0x3A3F4B)), x, 0.035, 0)); add(bench, -1.25, 1.2, 1.0);
+
+    // traffic: outer lane clockwise, inner lane anticlockwise
+    this.cars = [
+      { obj: makeCar(0xE4463B), lane: LANE_OUT, u: 0.0, v: 0.085, dir: 1 },
+      { obj: makeCar(0xF6C21C, 'bus'), lane: LANE_OUT, u: 0.36, v: 0.07, dir: 1 },
+      { obj: makeCar(0x3FAE9E), lane: LANE_OUT, u: 0.7, v: 0.085, dir: 1 },
+      { obj: makeCar(0xF4F4F4), lane: LANE_IN, u: 0.2, v: 0.1, dir: -1 },
+      { obj: makeCar(0xF29A2E), lane: LANE_IN, u: 0.7, v: 0.1, dir: -1 }
+    ];
+    this.cars.forEach(c => { c.len = c.lane.getLength(); c.obj.scale.setScalar(0.0001); world.add(c.obj); });
+
+    this.drone = makeDrone(); this.drone.scale.setScalar(0.0001); world.add(this.drone);
+    this.clouds = [add(makeCloud(), -0.8, -0.6, 1.6, 1.1), add(makeCloud(), 1.0, 0.2, 1.7, 0.9)]; this.clouds.forEach((c, i) => c.position.y = 1.75 + i * 0.2);
+    this.wallRest = new THREE.Vector3(0, 0, 0);
+
+    // hero: the boy on his bike with the giant phone, standing on the card
+    this.hero = new THREE.Group(); world.add(this.hero);
+    this.cyclist = makeCyclist(); this.cyclist.position.x = -0.22; this.hero.add(this.cyclist);
+    this.phone = makeBigPhone(); this.phone.position.set(0.95, 0.66, -0.3); this.phone.rotation.z = -0.1; this.phone.scale.setScalar(1.25); this.hero.add(this.phone);
+    this.reset();
+  }
+  reset() {
+    this.t = 0; this.ground.scale.set(0.0001, 1, 0.0001);
+    this.items.forEach(i => i.obj.scale.setScalar(0.0001)); this.risers.forEach(r => r.obj.scale.set(1, 0.0001, 1));
+    this.cars.forEach(c => c.obj.scale.setScalar(0.0001)); this.drone.scale.setScalar(0.0001); this.hero.scale.setScalar(0.0001);
+    this.phone.userData.screenMat.color.setHex(0x000000); this.lastClock = 0;
+  }
+  setSpawn(v, rest) { this.spawn = v.clone(); this.rest = (rest || v).clone(); }
+  update(dt) {
+    this.t += dt; const t = this.t;
+    const g = easeOutBack(t / 0.9); this.ground.scale.set(Math.max(g, 0.0001), 1, Math.max(g, 0.0001));
+    for (const it of this.items) it.obj.scale.setScalar(Math.max(0.0001, easeOutBack((t - it.delay) / 0.55) * it.s));
+    for (const r of this.risers) r.obj.scale.set(1, Math.max(0.0001, easeOutBack((t - r.delay) / 0.7)), 1);
+
+    // traffic
+    const carsIn = easeOutBack((t - 1.1) / 0.5);
+    const red = (t % 8) < 3;                                     // cars pause briefly at the crossing on red
+    for (const c of this.cars) {
+      c.obj.scale.setScalar(Math.max(0.0001, carsIn));
+      const p0 = c.lane.getPointAt(((c.u % 1) + 1) % 1);
+      const nearCross = Math.abs(p0.x) < 0.3 && p0.y > 0.4;
+      const slow = red && nearCross ? 0.25 : 1;
+      if (t > 1.1) c.u += c.dir * c.v * slow * dt / c.len * 3;
+      const u = ((c.u % 1) + 1) % 1, p = c.lane.getPointAt(u), tg = c.lane.getTangentAt(u).multiplyScalar(c.dir);
+      c.obj.position.set(p.x, 0, p.y); c.obj.rotation.y = Math.atan2(-tg.y, tg.x);
+    }
+    // traffic light cycle: green, yellow, red
+    const ph = t % 8, L = this.traffic.userData.lights;
+    L[0].material.color.setHex(ph < 3 ? 0xFF3B30 : 0x5A2A28); L[1].material.color.setHex(ph >= 3 && ph < 4 ? 0xFFD02A : 0x5A4A20); L[2].material.color.setHex(ph >= 4 ? 0x3DDB5A : 0x234A2A);
+    this.towerLight.visible = (t % 1.2) < 0.6; this.cell.userData.beacon.visible = ((t + 0.6) % 1.2) < 0.6;
+    this.cell.userData.waves.forEach((w, i) => { const k = (t * 0.6 + i / 3) % 1; w.scale.setScalar(0.6 + k * 1.6); w.material.opacity = 1 - k; });
+    // delivery drone
+    const dk = easeOutBack((t - 1.6) / 0.6); this.drone.scale.setScalar(Math.max(0.0001, dk * 1.3));
+    const da = t * 0.45; this.drone.position.set(Math.cos(da) * 1.15, 1.25 + Math.sin(t * 1.7) * 0.05, Math.sin(da) * 0.95); this.drone.rotation.y = -da - Math.PI / 2;
+    this.drone.userData.props.forEach((p, i) => p.rotation.y = t * 40 + i);
+    this.clouds.forEach((c, i) => { c.position.x += Math.sin(t * 0.2 + i) * 0.0015; });
+
+    // hero rises out of the card, then stays put: pedalling in place while the phone wakes up
+    const S = 0.42, spawn = this.spawn || new THREE.Vector3(), rest = this.rest || spawn;
+    const T0 = 0.5, T1 = 1.4, T2 = 2.4;
+    if (t < T0) this.hero.scale.setScalar(0.0001);
+    else if (t < T1) { const k = (t - T0) / (T1 - T0); this.hero.scale.setScalar(Math.max(0.0001, easeOutBack(k) * S)); this.hero.position.copy(spawn); this.hero.position.y += Math.sin(k * Math.PI) * 0.1; }
+    else if (t < T2) { const k = smooth((t - T1) / (T2 - T1)); this.hero.scale.setScalar(S); this.hero.position.lerpVectors(spawn, rest, k); if (spawn.distanceTo(rest) > 0.01) this.hero.position.y += Math.sin(k * Math.PI) * 0.1; }
+    else { this.hero.scale.setScalar(S); this.hero.position.copy(rest); }
+    animateCyclist(this.cyclist, dt, t < T1 ? 0 : 5);
+    this.cyclist.userData.head.rotation.y = Math.sin(t * 0.8) * 0.3;
+    this.cyclist.position.y = Math.abs(Math.sin(t * 5)) * 0.015;
+    const on = smooth((t - 1.8) / 0.5); this.phone.userData.screenMat.color.setScalar(on);
+    this.phone.position.y = 0.66 + Math.sin(t * 1.6) * 0.03; this.phone.rotation.y = Math.sin(t * 0.6) * 0.12;
+    if (t - this.lastClock > 20) { this.phone.userData.draw(); this.lastClock = t; }
+  }
+}
+
+/* ============================== stone age (the mammoth card) ============================== */
+const STONE_H = 895 / 1000;
+const SA = {
+  grass: 0xB5C86A, soil: 0x8A5A3B, mamBody: 0x8E4A2A, mamDark: 0x6E3520, mamFur: 0xD9994A, mamFurDark: 0xB97A34,
+  tusk: 0xFFFBF2, skin: 0xEDB45E, hair: 0x3B2418, tunic: 0x5A3322, tunicDark: 0x40231A, spear: 0x4A3322, tip: 0x2F3440,
+  rock: 0x9C8F80, rockDark: 0x7D7266, hide: 0xC89A5E, pine: 0x3E7D4A, pine2: 0x4F9458, snow: 0xFFFFFF, fire: 0xFF8A1E, fire2: 0xFFD23F
+};
+const rockGeo = new THREE.DodecahedronGeometry(0.5, 0);
+function stoneRock(sx, sy, sz, color = SA.rock) { const m = new THREE.Mesh(rockGeo, toon(color)); m.scale.set(sx, sy, sz); return m; }
+
+// Woolly mammoth like the card: brown body, tan shaggy head and shoulders, raised ringed trunk, white tusks. Faces -X.
+function makeMammoth() {
+  const body = toon(SA.mamBody), dark = toon(SA.mamDark), fur = toon(SA.mamFur), furD = toon(SA.mamFurDark);
+  const root = new THREE.Group();
+  const hips = grp(0, 1.0, 0); root.add(hips);
+  hips.add(blob(1.35, 1.05, 0.95, body, sphereGeo));
+  hips.add(at(blob(0.7, 0.9, 1.0, fur, sphereGeo), -0.38, 0.22, 0));            // shaggy tan shoulders
+  // fur fringe along the belly
+  for (let i = 0; i < 9; i++) { const x = -0.55 + i * 0.13; for (const z of [-0.36, 0.36]) { const c = cone(0.07, 0.2, i < 3 ? furD : dark); c.rotation.x = Math.PI; c.position.set(x, -0.42, z * (1 - Math.abs(x) * 0.25)); hips.add(c); } }
+  for (let i = 0; i < 5; i++) { const c = cone(0.08, 0.2, furD); c.rotation.x = Math.PI; c.position.set(-0.55 + i * 0.07, -0.1, (i - 2) * 0.2); hips.add(c); }
+  // head
+  const head = grp(-0.72, 0.45, 0); hips.add(head);
+  head.add(blob(0.62, 0.66, 0.62, fur, sphereGeo));
+  head.add(at(blob(0.3, 0.35, 0.36, fur, sphereGeo), 0.1, 0.32, 0));             // domed top
+  for (const s of [1, -1]) {
+    head.add(at(ball(0.035, toon(0x1B1210)), -0.2, 0.08, 0.22 * s));
+    const brow = blob(0.1, 0.02, 0.02, toon(SA.hair)); brow.position.set(-0.2, 0.14, 0.225 * s); brow.rotation.z = 0.35; head.add(brow);
+    head.add(at(blob(0.12, 0.06, 0.02, toon(0xF3A08A), sphereGeo), -0.15, -0.04, 0.29 * s));  // blush
+    head.add(at(blob(0.18, 0.26, 0.08, furD, sphereGeo), 0.05, 0.0, 0.3 * s));                 // ear
+    // tusk: a white arc curving forward and up
+    const tusk = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.05, 8, 20, Math.PI * 0.95), toon(SA.tusk));
+    tusk.position.set(-0.28, -0.05, 0.14 * s); tusk.rotation.set(0, 0, Math.PI * 0.55); head.add(tusk);
+  }
+  // trunk: ringed segments, starts pointing down then curls up like the card
+  const trunkMat = toon(0xffffff, { map: (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); g.fillStyle = hex(SA.mamFur); g.fillRect(0, 0, 64, 64); g.fillStyle = hex(SA.mamFurDark); for (let y = 6; y < 64; y += 14) g.fillRect(0, y, 64, 4); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; })() });
+  const trunk = chain(6, 0.15, 0.1, 0.1, 0.05, trunkMat, -1, 0); trunk.root.position.set(-0.28, -0.12, 0); trunk.root.rotation.z = 1.45; head.add(trunk.root);
+  // legs
+  const legs = [];
+  for (const [x, s] of [[-0.35, 1], [-0.35, -1], [0.38, 1], [0.38, -1]]) {
+    const hip = grp(x, -0.35, 0.28 * s); hips.add(hip);
+    const leg = new THREE.Mesh(cylGeo, body); leg.scale.set(0.3, 0.7, 0.3); leg.position.y = -0.3; hip.add(leg);
+    for (let i = 0; i < 4; i++) { const c = cone(0.05, 0.14, dark); c.rotation.x = Math.PI; c.position.set(Math.cos(i * 1.6) * 0.13, -0.3, Math.sin(i * 1.6) * 0.13); hip.add(c); }
+    hip.add(at(blob(0.34, 0.08, 0.34, dark, sphereGeo), 0, -0.64, 0));
+    legs.push({ hip, s, front: x < 0 });
+  }
+  const tail = chain(3, 0.12, 0.08, 0.04, 0.03, body, 1, -0.9); tail.root.position.set(0.66, 0.1, 0); hips.add(tail.root);
+  root.add(blobShadow(2.0, 1.2));
+  root.userData = { hips, head, trunk, legs, tail };
+  return root;
+}
+
+// Cave hunter like the card: bushy hair and beard, brown tunic with a jagged hem, spear with a stone tip.
+function makeHunter(yell = false) {
+  const skinM = toon(SA.skin), hair = toon(SA.hair), tunic = toon(SA.tunic);
+  const root = new THREE.Group();
+  const body = grp(0, 0.5, 0); root.add(body);
+  body.add(at(blob(0.34, 0.4, 0.3, skinM, sphereGeo), 0, 0.12, 0));                    // chest
+  const tun = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.26, 10), tunic); tun.position.y = -0.06; body.add(tun);
+  for (let i = 0; i < 10; i++) { const a = i / 10 * TAU; const c = cone(0.04, 0.09, tunic); c.rotation.x = Math.PI; c.position.set(Math.cos(a) * 0.19, -0.22, Math.sin(a) * 0.19); body.add(c); }
+  const strap = new THREE.Mesh(cylGeo, tunic); strap.scale.set(0.06, 0.42, 0.31); strap.rotation.x = 0; strap.rotation.z = 0.6; strap.position.set(0.02, 0.15, 0); body.add(strap);
+  const head = grp(0, 0.5, 0); body.add(head);
+  head.add(ball(0.2, skinM));
+  head.add(at(blob(0.36, 0.36, 0.4, hair, sphereGeo), 0.08, 0.07, 0));                  // bushy hair behind
+  head.add(at(blob(0.24, 0.2, 0.3, hair, sphereGeo), -0.08, -0.14, 0));                 // beard
+  for (const s of [1, -1]) {
+    head.add(at(ball(0.025, toon(0x1B1210)), -0.17, 0.04, 0.07 * s));
+    const b = blob(0.07, 0.018, 0.02, hair); b.position.set(-0.18, 0.1, 0.075 * s); b.rotation.z = -0.5; head.add(b);
+  }
+  const mouth = blob(0.04, yell ? 0.08 : 0.015, 0.08, toon(yell ? 0xC0282C : 0x5A2A1E), sphereGeo); mouth.position.set(-0.19, -0.06, 0); head.add(mouth);
+  // legs
+  const legs = [];
+  for (const s of [1, -1]) {
+    const hip = grp(0, -0.2, 0.09 * s); body.add(hip);
+    const l = new THREE.Mesh(cylGeo, skinM); l.scale.set(0.09, 0.3, 0.09); l.position.y = -0.14; hip.add(l);
+    hip.add(at(blob(0.13, 0.05, 0.08, skinM), -0.03, -0.29, 0));
+    legs.push(hip);
+  }
+  // arms + spear, held diagonally and pointed forward (-X)
+  const arms = grp(-0.02, 0.2, 0); body.add(arms);
+  for (const s of [1, -1]) { const a = new THREE.Mesh(cylGeo, skinM); a.scale.set(0.07, 0.24, 0.07); a.position.set(-0.08, -0.05, 0.14 * s); a.rotation.z = 1.1; arms.add(a); arms.add(at(ball(0.04, skinM), -0.18, -0.1, 0.14 * s)); }
+  const spear = new THREE.Group(); spear.position.set(-0.18, -0.1, 0.16); spear.rotation.z = 1.25; arms.add(spear);
+  const shaft = new THREE.Mesh(cylGeo, toon(SA.spear)); shaft.scale.set(0.022, 0.95, 0.022); spear.add(shaft);
+  const tip = cone(0.035, 0.12, toon(SA.tip)); tip.position.y = 0.52; spear.add(tip);
+  root.add(blobShadow(0.45, 0.35));
+  root.userData = { body, head, legs, arms };
+  return root;
+}
+
+function makeCave() {
+  const g = new THREE.Group();
+  [[0, 0.3, 0, 1.1, 0.7, 0.8], [-0.35, 0.22, 0.1, 0.6, 0.5, 0.6], [0.38, 0.2, -0.05, 0.6, 0.45, 0.6], [0.05, 0.55, -0.1, 0.6, 0.4, 0.5], [0.2, 0.12, 0.3, 0.4, 0.25, 0.3]]
+    .forEach(([x, y, z, a, b, c], i) => { const r = stoneRock(a, b, c, i % 2 ? SA.rockDark : SA.rock); r.position.set(x, y, z); r.rotation.y = i; g.add(r); });
+  const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.2, 20, 0, Math.PI), new THREE.MeshBasicMaterial({ color: 0x2A1E18 }));
+  mouth.scale.set(1, 1.3, 1); mouth.position.set(-0.02, 0.0, 0.42); g.add(mouth);
+  return g;
+}
+function makePaintedRock() {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 160; const x = cv.getContext('2d');
+  x.fillStyle = '#B7A994'; x.fillRect(0, 0, 256, 160);
+  x.fillStyle = '#A5401F'; x.strokeStyle = '#A5401F'; x.lineWidth = 6; x.lineCap = 'round';
+  x.beginPath(); x.ellipse(150, 78, 48, 30, 0, 0, TAU); x.fill();                                     // mammoth
+  x.beginPath(); x.moveTo(108, 70); x.quadraticCurveTo(92, 110, 104, 120); x.stroke();
+  [125, 140, 160, 175].forEach(lx => { x.beginPath(); x.moveTo(lx, 100); x.lineTo(lx, 128); x.stroke(); });
+  [[40, 80], [70, 90]].forEach(([hx, hy]) => { x.beginPath(); x.arc(hx, hy - 30, 7, 0, TAU); x.fill(); x.beginPath(); x.moveTo(hx, hy - 22); x.lineTo(hx, hy + 5); x.moveTo(hx, hy + 5); x.lineTo(hx - 9, hy + 26); x.moveTo(hx, hy + 5); x.lineTo(hx + 9, hy + 26); x.moveTo(hx - 12, hy - 12); x.lineTo(hx + 12, hy - 8); x.stroke(); x.beginPath(); x.moveTo(hx + 12, hy - 8); x.lineTo(hx + 40, hy - 22); x.stroke(); });
+  x.fillStyle = '#E3C07A'; [[210, 30], [228, 44]].forEach(([hx, hy]) => { x.beginPath(); x.arc(hx, hy, 8, 0, TAU); x.fill(); });
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  const g = new THREE.Group();
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.4, 0.1), [toon(SA.rockDark), toon(SA.rockDark), toon(SA.rockDark), toon(SA.rockDark), toon(0xffffff, { map: t }), toon(SA.rockDark)]);
+  slab.position.y = 0.2; g.add(slab);
+  return g;
+}
+function makeCampfire() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 9; i++) { const a = i / 9 * TAU; const r = stoneRock(0.07, 0.05, 0.07, i % 2 ? SA.rock : SA.rockDark); r.position.set(Math.cos(a) * 0.14, 0.02, Math.sin(a) * 0.14); g.add(r); }
+  for (let i = 0; i < 3; i++) { const l = new THREE.Mesh(cylGeo, toon(0x6B4226)); l.scale.set(0.035, 0.22, 0.035); l.rotation.set(Math.PI / 2 - 0.3, i * 2.1, 0); l.position.y = 0.04; g.add(l); }
+  const flames = [];
+  [[0, 0.16, 0.07, SA.fire], [0.03, 0.11, 0.05, SA.fire2], [-0.035, 0.12, 0.045, SA.fire], [0.0, 0.08, 0.035, 0xFFF3B0]].forEach(([x, h, r, c]) => {
+    const f = cone(r, h, new THREE.MeshBasicMaterial({ color: c })); f.position.set(x, 0.05 + h / 2, 0); g.add(f); flames.push({ f, h });
+  });
+  const smoke = []; const sm = new THREE.MeshToonMaterial({ color: 0xDDD6CC, gradientMap, transparent: true, opacity: 0.8 });
+  for (let i = 0; i < 4; i++) { const p = ball(0.04, sm.clone()); p.userData.t = i / 4; g.add(p); smoke.push(p); }
+  // spit with a roast over the fire
+  for (const s of [-1, 1]) { const p = new THREE.Mesh(cylGeo, toon(0x6B4226)); p.scale.set(0.015, 0.26, 0.015); p.position.set(0.17 * s, 0.13, 0); g.add(p); }
+  const spit = new THREE.Mesh(cylGeo, toon(0x6B4226)); spit.scale.set(0.012, 0.4, 0.012); spit.rotation.z = Math.PI / 2; spit.position.y = 0.25; g.add(spit);
+  const roast = blob(0.14, 0.08, 0.08, toon(0xA0522D), sphereGeo); roast.position.y = 0.25; g.add(roast);
+  g.userData = { flames, smoke, roast }; return g;
+}
+function makeHut() {
+  const g = new THREE.Group();
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; const x = cv.getContext('2d');
+  x.fillStyle = hex(SA.hide); x.fillRect(0, 0, 128, 64); x.strokeStyle = '#8E6538'; x.lineWidth = 2; for (let i = 0; i < 128; i += 21) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + 6, 64); x.stroke(); }
+  x.fillStyle = '#A5401F'; for (let i = 8; i < 128; i += 18) { x.beginPath(); x.moveTo(i, 44); x.lineTo(i + 6, 34); x.lineTo(i + 12, 44); x.fill(); }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  const tent = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 12, 1, true), toon(0xffffff, { map: t, side: THREE.DoubleSide })); tent.position.y = 0.275; g.add(tent);
+  for (let i = 0; i < 5; i++) { const p = new THREE.Mesh(cylGeo, toon(0x6B4226)); p.scale.set(0.015, 0.22, 0.015); const a = i / 5 * TAU; p.position.set(Math.cos(a) * 0.03, 0.6, Math.sin(a) * 0.03); p.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35); g.add(p); }
+  const door = new THREE.Mesh(new THREE.CircleGeometry(0.1, 3), new THREE.MeshBasicMaterial({ color: 0x3A2618 })); door.rotation.z = Math.PI / 2; door.scale.set(1.3, 0.9, 1); door.position.set(0, 0.1, 0.235); door.rotation.x = -0.45; g.add(door);
+  g.add(blobShadow(0.8, 0.8));
+  return g;
+}
+function makePine(h = 0.7, snowy = false) {
+  const g = new THREE.Group();
+  const tr = new THREE.Mesh(cylGeo, toon(0x6B4226)); tr.scale.set(0.05, 0.16, 0.05); tr.position.y = 0.08; g.add(tr);
+  for (let i = 0; i < 3; i++) { const r = 0.2 - i * 0.05, c = cone(r, h * 0.42, toon(i % 2 ? SA.pine2 : SA.pine)); c.position.y = 0.16 + i * h * 0.22 + h * 0.21; g.add(c); if (snowy && i === 2) { const s = cone(r * 0.55, h * 0.2, toon(SA.snow)); s.position.y = c.position.y + h * 0.13; g.add(s); } }
+  g.add(blobShadow(0.4, 0.4)); return g;
+}
+function makePeak(h = 0.8, r = 0.5) {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7, 1), toon(SA.rock, { })); m.position.y = h / 2; g.add(m);
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(r * 0.38, h * 0.38, 7, 1), toon(SA.snow)); cap.position.y = h - h * 0.19 + 0.005; g.add(cap);
+  return g;
+}
+function makeBone() { const g = new THREE.Group(), m = toon(SA.tusk); const s = new THREE.Mesh(cylGeo, m); s.scale.set(0.02, 0.14, 0.02); s.rotation.z = Math.PI / 2; g.add(s); for (const x of [-0.07, 0.07]) for (const z of [-0.012, 0.012]) g.add(at(ball(0.017, m), x, 0, z)); g.position.y = 0.02; return g; }
+function makeBird() {
+  const g = new THREE.Group(), m = toon(0x3A3F4B, { side: THREE.DoubleSide }); const wings = [];
+  g.add(blob(0.08, 0.03, 0.03, m));
+  for (const s of [1, -1]) { const sh = new THREE.Shape(); sh.moveTo(0.02, 0); sh.lineTo(-0.02, 0.12); sh.lineTo(-0.04, 0); sh.closePath(); const w = new THREE.Mesh(new THREE.ShapeGeometry(sh), m); const p = new THREE.Group(); w.rotation.x = s > 0 ? Math.PI / 2 : -Math.PI / 2; p.add(w); g.add(p); wings.push({ p, s }); }
+  g.userData.wings = wings; return g;
+}
+
+class StoneScene {
+  constructor() {
+    this.RZ = RZ; this.cardH = STONE_H; this.wallRest = new THREE.Vector3(0, 0, 0);
+    const world = new THREE.Group(); this.world = world;
+    const items = []; this.items = items;
+    const add = (o, x, z, delay, s = 1, ry = 0) => { o.position.x = x; o.position.z = z; o.rotation.y = ry; o.scale.setScalar(0.0001); world.add(o); items.push({ obj: o, delay, s }); return o; };
+    this.ground = makeGround(RX, RZ, HOLE_W, STONE_H + 0.1, SA.grass, SA.soil); world.add(this.ground);
+    this.fill = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_W + 0.02, STONE_H + 0.12), toon(SA.grass)); this.fill.rotation.x = -Math.PI / 2; this.fill.position.y = -0.002; this.fill.visible = false; world.add(this.fill);
+
+    this.cave = add(makeCave(), -1.25, -0.85, 0.35, 1, 0.55);
+    add(makePaintedRock(), -0.45, -1.15, 0.6, 1, 0.15);
+    this.fire = add(makeCampfire(), 1.05, 0.72, 0.7, 1.4);
+    add(makeHut(), 1.3, -0.55, 0.55, 1.1, -0.5);
+    add(makePeak(0.9, 0.45), 0.35, -1.2, 0.3); add(makePeak(0.65, 0.38), 0.85, -1.05, 0.4);
+    [[1.65, 0.05, 0.75], [1.55, -1.0, 0.6], [-1.65, 0.1, 0.8], [-0.95, -1.25, 0.55], [1.75, 0.55, 0.6], [-1.55, -0.3, 0.65], [0.0, -1.3, 0.5]]
+      .forEach(([x, z, h], i) => add(makePine(h, i % 3 === 0), x, z, 0.5 + Math.hypot(x, z) * 0.2));
+    [[-0.95, 0.95, 0.18], [0.35, 1.2, 0.14], [1.45, 1.0, 0.12], [-1.7, 0.75, 0.2], [0.75, -0.95, 0.13]]
+      .forEach(([x, z, r], i) => { const rk = stoneRock(r * 1.4, r, r * 1.2, i % 2 ? SA.rock : SA.rockDark); rk.position.y = r * 0.35; add(grp(0, 0, 0, rk), x, z, 0.6 + i * 0.05); });
+    [[0.8, 0.95], [1.3, 0.5]].forEach(([x, z], i) => add(makeBone(), x, z, 0.9, 1, i));
+    [[0.25, 1.28], [-0.4, 1.25], [1.8, -0.4], [-1.8, 0.35]].forEach(([x, z], i) => add(makeFern(1), x, z, 0.8 + i * 0.03));
+    // standing stones
+    [[-0.1, 1.35], [-0.25, 1.38]].forEach(([x, z], i) => { const s = stoneRock(0.12, 0.34, 0.1, SA.rockDark); s.position.y = 0.14; add(grp(0, 0, 0, s), x, z, 0.9); });
+
+    this.baby = add(makeMammoth(), -1.15, 0.75, 1.5, 0.17);
+    this.birds = [makeBird(), makeBird(), makeBird()]; this.birds.forEach(b => { b.scale.setScalar(0.0001); world.add(b); });
+
+    // hero group: mammoth with the three hunters around it, as on the card
+    this.hero = new THREE.Group(); world.add(this.hero);
+    this.mammoth = makeMammoth(); this.mammoth.scale.setScalar(0.4); this.mammoth.position.set(0.08, 0, -0.16); this.hero.add(this.mammoth);
+    this.hunters = [
+      { h: makeHunter(false), x: -0.4, z: 0.05, ry: 0.2 },
+      { h: makeHunter(false), x: -0.12, z: 0.3, ry: 0.9 },
+      { h: makeHunter(true), x: 0.34, z: 0.27, ry: 2.3 }
+    ];
+    this.hunters.forEach(({ h, x, z }) => { h.position.set(x, 0, z); h.rotation.y = Math.atan2(-0.1 - z, -(0.0 - x)); h.scale.setScalar(0.3); this.hero.add(h); });
+    this.reset();
+  }
+  reset() {
+    this.t = 0; this.ground.scale.set(0.0001, 1, 0.0001);
+    this.items.forEach(i => i.obj.scale.setScalar(0.0001)); this.hero.scale.setScalar(0.0001); this.birds.forEach(b => b.scale.setScalar(0.0001));
+  }
+  setSpawn(v, rest) { this.spawn = v.clone(); this.rest = (rest || v).clone(); }
+  update(dt) {
+    this.t += dt; const t = this.t;
+    const g = easeOutBack(t / 0.9); this.ground.scale.set(Math.max(g, 0.0001), 1, Math.max(g, 0.0001));
+    for (const it of this.items) it.obj.scale.setScalar(Math.max(0.0001, easeOutBack((t - it.delay) / 0.55) * it.s));
+
+    // campfire flicker, smoke, turning roast
+    const F = this.fire.userData;
+    F.flames.forEach(({ f, h }, i) => { const k = 0.8 + 0.3 * Math.sin(t * 13 + i * 2) + 0.1 * Math.sin(t * 31 + i); f.scale.y = h * k; f.position.y = 0.05 + h * k / 2; });
+    F.smoke.forEach(p => { const k = (p.userData.t + t * 0.3) % 1; p.position.set(Math.sin(k * 5 + p.userData.t * 7) * 0.04, 0.3 + k * 0.5, 0); p.scale.setScalar(0.06 + k * 0.14); p.material.opacity = 0.8 * (1 - k); });
+    F.roast.rotation.x = t * 1.5;
+
+    // baby mammoth ambles in a small circle
+    if (t > 1.5) {
+      const a = (t - 1.5) * 0.35, x = -1.15 + Math.cos(a) * 0.28, z = 0.72 + Math.sin(a) * 0.18;
+      this.baby.position.set(x, 0, z);
+      const dx = -Math.sin(a), dz = Math.cos(a) * 0.64; this.baby.rotation.y = Math.atan2(-dz, dx) + Math.PI;  // model faces -X
+      this.animMammoth(this.baby.userData, t, 5, 1);
+    }
+    // birds
+    this.birds.forEach((b, i) => {
+      b.scale.setScalar(Math.max(0.0001, easeOutBack((t - 1.8 - i * 0.2) / 0.5) * 0.9));
+      const a = t * 0.4 + i * 0.5, R = 1.3 - i * 0.08; b.position.set(Math.cos(a) * R, 1.35 + i * 0.07 + Math.sin(t * 2 + i) * 0.03, Math.sin(a) * R * 0.8);
+      b.rotation.y = Math.atan2(-Math.cos(a), -Math.sin(a)); b.userData.wings.forEach(({ p, s }) => p.rotation.x = s * Math.sin(t * 9 + i) * 0.6);
+    });
+
+    // hero: rises out of the card and stays there
+    const S = 1, spawn = this.spawn || new THREE.Vector3(), rest = this.rest || spawn, T0 = 0.5, T1 = 1.4, T2 = 2.4;
+    if (t < T0) this.hero.scale.setScalar(0.0001);
+    else if (t < T1) { const k = (t - T0) / (T1 - T0); this.hero.scale.setScalar(Math.max(0.0001, easeOutBack(k) * S)); this.hero.position.copy(spawn); this.hero.position.y += Math.sin(k * Math.PI) * 0.1; }
+    else if (t < T2) { const k = smooth((t - T1) / (T2 - T1)); this.hero.scale.setScalar(S); this.hero.position.lerpVectors(spawn, rest, k); if (spawn.distanceTo(rest) > 0.01) this.hero.position.y += Math.sin(k * Math.PI) * 0.1; }
+    else { this.hero.scale.setScalar(S); this.hero.position.copy(rest); }
+
+    // mammoth: sways, swings its trunk, trumpets every few seconds with a stomp
+    const m = this.mammoth.userData, cyc = t % 6, trumpet = cyc > 4 && cyc < 5.4 ? Math.sin((cyc - 4) / 1.4 * Math.PI) : 0;
+    this.animMammoth(m, t, 0, 0);
+    m.hips.rotation.z = -0.08 * trumpet;
+    m.trunk.root.rotation.z = 1.45 + 0.9 * trumpet;
+    m.trunk.joints.forEach((j, i) => j.rotation.z = -0.38 - 0.12 * trumpet + Math.sin(t * 1.4 - i * 0.5) * 0.06 * (1 - trumpet));
+    m.legs[0].hip.rotation.z = trumpet > 0.5 ? -0.3 * (trumpet - 0.5) * 2 : 0;
+    m.head.rotation.x = Math.sin(t * 0.9) * 0.05;
+
+    // hunters: crouch and jab their spears; the right one shouts
+    this.hunters.forEach(({ h }, i) => {
+      const u = h.userData, p = t * 2.2 + i * 1.7;
+      u.body.position.y = 0.5 + Math.abs(Math.sin(p)) * 0.03 - trumpet * 0.04;
+      u.arms.position.x = -0.02 - Math.max(0, Math.sin(p * 1.3)) * 0.08;
+      u.body.rotation.z = Math.sin(p) * 0.05 - trumpet * 0.12;           // flinch back when it trumpets
+      u.legs.forEach((l, k) => l.rotation.z = Math.sin(p + k * Math.PI) * 0.2);
+      u.head.rotation.y = Math.sin(t * 1.1 + i) * 0.15;
+    });
+  }
+  animMammoth(u, t, speed, amount) {
+    const p = t * speed;
+    u.legs.forEach(({ hip, s, front }) => { hip.rotation.z = Math.sin(p + (s > 0 ? 0 : Math.PI) + (front ? Math.PI : 0)) * 0.3 * amount; });
+    u.hips.position.y = 1.0 + Math.abs(Math.sin(p)) * 0.03 * amount + Math.sin(t * 1.8) * 0.01;
+    waveChain(u.tail, t, 0.25, 4, 'y');
+    if (amount) u.trunk.joints.forEach((j, i) => j.rotation.z = -0.25 + Math.sin(t * 2 - i * 0.6) * 0.1);
+  }
+}
+
 /* ============================== surface modes ============================== */
 // table: card lies flat, world grows up out of it.  wall: card hangs upright, world is a stage in front of it.
 function applySurface(ds, mode, anchored) {
   const w = ds.world;
-  ds.w.fill.visible = mode === 'wall';
-  if (!anchored) { w.rotation.set(0, 0, 0); w.position.set(0, 0, 0); w.scale.setScalar(1); ds.setSpawn(new THREE.Vector3(0, 0, 0)); return; }
-  if (mode === 'table') {
-    w.rotation.set(Math.PI / 2, 0, 0); w.position.set(0, 0, 0); w.scale.setScalar(1);
-    ds.setSpawn(new THREE.Vector3(0, 0, 0));
-  } else {
-    const s = 0.7; w.rotation.set(0, 0, 0); w.scale.setScalar(s);
-    w.position.set(0, -CARD_H / 2, (RZ + 0.05) * s);
-    // card centre in world-local coords: T-rex jumps out of the picture
-    ds.setSpawn(new THREE.Vector3(0, CARD_H / 2 / s, -(RZ + 0.05)));
+  ds.fill.visible = anchored && mode === 'wall';
+  if (!anchored || mode === 'table') {
+    w.rotation.set(anchored ? Math.PI / 2 : 0, 0, 0); w.position.set(0, 0, 0); w.scale.setScalar(1);
+    ds.setSpawn(new THREE.Vector3(0, 0, 0)); return;
   }
+  const s = 0.7; w.rotation.set(0, 0, 0); w.scale.setScalar(s);
+  w.position.set(0, -ds.cardH / 2, (ds.RZ + 0.05) * s);
+  // start at the card's centre (world-local coords), then hop down onto the stage in front of it
+  ds.setSpawn(new THREE.Vector3(0, ds.cardH / 2 / s, -(ds.RZ + 0.05)), ds.wallRest);
 }
+
+/* The two cards, in the order they were compiled into targets.mind */
+const WORLDS = [
+  { name: 'Dinosaurs', img: 'target.jpg', cardH: CARD_H, make: () => new DinoScene() },
+  { name: 'City', img: 'target-city.jpg', cardH: CITY_H, make: () => new CityScene() },
+  { name: 'Stone Age', img: 'target-stone.jpg', cardH: STONE_H, make: () => new StoneScene() }
+];
 
 /* ============================== app shell ============================== */
 const $ = id => document.getElementById(id);
@@ -660,7 +1271,7 @@ function showStart() {
 function showErr(msg) { const e = $('err'); e.textContent = msg; e.hidden = false; }
 
 
-// ---------- start-screen hero: the card's T-rex in 3D ----------
+// ---------- start-screen hero: the two cards' heroes in 3D, taking turns ----------
 let hero = null;
 function startHero() {
   if (hero) return;
@@ -670,23 +1281,33 @@ function startHero() {
   el.appendChild(renderer.domElement);
   const scene = new THREE.Scene(); lights(scene);
   const camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 20); camera.position.set(0.15, 1.05, 3.4); camera.lookAt(0, 0.62, 0);
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.9, 0.12, 40), [toon(C.grass), toon(C.grass), toon(C.grass)]);
-  base.position.y = -0.06; scene.add(base);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.9, 0.12, 40), toon(C.grass)); base.position.y = -0.06; scene.add(base);
   const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.82, 0.12, 40), toon(C.soil)); rim.position.y = -0.17; scene.add(rim);
   const rex = makeTrex(); rex.scale.setScalar(0.62); scene.add(rex);
+  const kid = new THREE.Group(); const cyc = makeCyclist(); cyc.position.x = -0.25; kid.add(cyc);
+  const ph = makeBigPhone(); ph.position.set(0.85, 0.62, -0.35); ph.rotation.z = -0.1; ph.scale.setScalar(1.2); ph.userData.screenMat.color.setScalar(1); kid.add(ph);
+  kid.scale.setScalar(0.72); scene.add(kid);
   const u = rex.userData, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const clock = new THREE.Clock(); let raf;
+  const clock = new THREE.Clock(); let raf, last = 0;
   const loop = () => {
     raf = requestAnimationFrame(loop);
-    const t = reduce ? 1.2 : clock.getElapsedTime();
+    const t = reduce ? 1.2 : clock.getElapsedTime(), dt = t - last; last = t;
+    // 7 s each; the outgoing hero shrinks away as the next one pops up
+    const P = 7, ph0 = t % (2 * P), showRex = ph0 < P, k = (ph0 % P);
+    const pop = x => Math.max(0.0001, easeOutBack(x / 0.5)), out = x => Math.max(0.0001, 1 - smooth((x - (P - 0.35)) / 0.35));
+    const sRex = reduce ? 0.62 : (showRex ? 0.62 * Math.min(pop(k), out(k)) : 0.0001);
+    const sKid = reduce ? 0.0001 : (!showRex ? 0.72 * Math.min(pop(k), out(k)) : 0.0001);
+    rex.scale.setScalar(sRex); kid.scale.setScalar(sKid);
     rex.rotation.y = Math.PI + 0.3 + Math.sin(t * 0.5) * 0.3;       // mostly facing left, like the card
     animateBipedWalk(u, t, 0, 0);
-    u.hips.position.y = 0.95 + Math.sin(t * 2.2) * 0.012;               // breathing
+    u.hips.position.y = 0.95 + Math.sin(t * 2.2) * 0.012;
     waveChain(u.tail, t, 0.1, 2.2);
-    const cyc = t % 5, roar = cyc > 3.6 && cyc < 4.8 ? Math.sin((cyc - 3.6) / 1.2 * Math.PI) : 0;
+    const c5 = t % 5, roar = c5 > 3.6 && c5 < 4.8 ? Math.sin((c5 - 3.6) / 1.2 * Math.PI) : 0;
     u.jaw.rotation.z = -0.1 - 0.6 * roar - 0.05 * Math.sin(t * 2);
     u.head.rotation.z = -0.32 + 0.3 * roar; u.torso.rotation.z = 0.32 + 0.08 * roar;
     u.arms.forEach((a, i) => a.rotation.z = Math.sin(t * (roar ? 18 : 3) + i) * (0.1 + 0.2 * roar));
+    kid.rotation.y = -0.35 + Math.sin(t * 0.5) * 0.3;                 // riding to the right, like the card
+    animateCyclist(cyc, Math.min(dt, 0.05), 5); ph.position.y = 0.62 + Math.sin(t * 1.6) * 0.03;
     renderer.render(scene, camera);
   };
   loop();
@@ -695,9 +1316,12 @@ function startHero() {
 function stopHero() { if (hero) { hero.stop(); hero = null; } }
 
 // ---------- 3D preview (no camera) ----------
-function startPreview() {
-  stopHero();
+let previewIndex = 0;
+function startPreview(index = previewIndex) {
+  stopHero(); if (running) { running.stop(); running = null; } stage.innerHTML = '';
+  previewIndex = index; const W = WORLDS[index];
   $('start').hidden = true; $('back').hidden = false; $('hud').hidden = false; $('err').hidden = true;
+  $('swapWorld').hidden = false; $('swapWorld').textContent = 'Show ' + WORLDS[(index + 1) % WORLDS.length].name;
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -710,12 +1334,12 @@ function startPreview() {
   controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
   lights(scene);
   // the printed card, lying where the real one would be
-  const tex = new THREE.TextureLoader().load('target.jpg'); tex.colorSpace = THREE.SRGBColorSpace;
-  const card = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshBasicMaterial({ map: tex }));
+  const tex = new THREE.TextureLoader().load(W.img); tex.colorSpace = THREE.SRGBColorSpace;
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, W.cardH), new THREE.MeshBasicMaterial({ map: tex }));
   card.rotation.x = -Math.PI / 2; card.position.y = 0.001; scene.add(card);
   const table = new THREE.Mesh(new THREE.CircleGeometry(6, 48), new THREE.MeshBasicMaterial({ color: 0xE8DCCB })); table.rotation.x = -Math.PI / 2; table.position.y = -0.15; scene.add(table);
 
-  const ds = new DinoScene(); applySurface(ds, 'table', false); scene.add(ds.world);
+  const ds = W.make(); applySurface(ds, 'table', false); scene.add(ds.world);
   $('replay').onclick = () => ds.reset();
   const clock = new THREE.Clock(); let raf;
   const onResize = () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); };
@@ -723,37 +1347,62 @@ function startPreview() {
   const loop = () => { raf = requestAnimationFrame(loop); const dt = Math.min(clock.getDelta(), 0.05); ds.update(dt); controls.update(); renderer.render(scene, camera); };
   loop();
   window.__ds = ds; window.__cam = { camera, controls };
-  running = { stop() { cancelAnimationFrame(raf); removeEventListener('resize', onResize); renderer.dispose(); } };
+  running = { stop() { cancelAnimationFrame(raf); removeEventListener('resize', onResize); renderer.dispose(); renderer.forceContextLoss(); } };
 }
 
-// ---------- camera AR ----------
+// ---------- camera AR: one tracked world per card ----------
 async function startAR() {
   $('err').hidden = true;
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     showErr('The camera needs this page to be opened over HTTPS in a normal browser tab.'); return;
   }
-  stopHero(); $('start').hidden = true; $('loading').hidden = false; $('back').hidden = false;
+  stopHero(); $('start').hidden = true; $('loading').hidden = false; $('back').hidden = false; $('swapWorld').hidden = true;
   let mindar;
   try {
     const { MindARThree } = await import('mindar-image-three');
     mindar = new MindARThree({
       container: stage, imageTargetSrc: new URL('targets.mind', location.href).href,
-      uiLoading: 'no', uiScanning: 'no', uiError: 'no',
-      filterMinCF: 0.0001, filterBeta: 0.001, warmupTolerance: 2, missTolerance: 8
+      maxTrack: 1, uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+      filterMinCF: 0.001, filterBeta: 0.01, warmupTolerance: 2, missTolerance: 10
     });
     const { renderer, scene, camera } = mindar;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     lights(scene);
-    const ds = new DinoScene(); const mode = surface(); applySurface(ds, mode, true);
-    const anchor = mindar.addAnchor(0); anchor.group.add(ds.world);
-    let found = false, lostAt = 0;
-    anchor.onTargetFound = () => { found = true; $('hint').hidden = true; $('hud').hidden = false; if (performance.now() - lostAt > 6000 && lostAt) ds.reset(); };
-    anchor.onTargetLost = () => { found = false; lostAt = performance.now(); $('hint').hidden = false; };
-    $('replay').onclick = () => ds.reset();
+    const mode = surface();
+    // Each world lives in its own holder, not inside MindAR's anchor. Every frame the holder eases toward the
+    // tracked card pose (steadier while you walk around) and holds its place through short tracking drops.
+    const HOLD_MS = 1500;
+    const tracks = WORLDS.map((W, i) => {
+      const ds = W.make(); applySurface(ds, mode, true);
+      const anchor = mindar.addAnchor(i);
+      const holder = new THREE.Group(); holder.matrixAutoUpdate = false; holder.visible = false; holder.add(ds.world); scene.add(holder);
+      const tr = { ds, anchor, holder, P: new THREE.Vector3(), Q: new THREE.Quaternion(), S: new THREE.Vector3(), lastSeen: 0, everSeen: false };
+      anchor.onTargetFound = () => { if (tr.everSeen && performance.now() - tr.lastSeen > 8000) ds.reset(); };
+      return tr;
+    });
+    const tp = new THREE.Vector3(), tq = new THREE.Quaternion(), ts = new THREE.Vector3();
+    let current = null;
+    $('replay').onclick = () => { if (current) current.ds.reset(); };
     await mindar.start();
     $('loading').hidden = true; $('hint').hidden = false;
     const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => { const dt = Math.min(clock.getDelta(), 0.05); if (found) ds.update(dt); renderer.render(scene, camera); });
+    renderer.setAnimationLoop(() => {
+      const dt = Math.min(clock.getDelta(), 0.05), now = performance.now();
+      let any = false;
+      for (const tr of tracks) {
+        const { anchor, holder } = tr;
+        if (anchor.visible) {
+          anchor.group.matrix.decompose(tp, tq, ts);
+          if (!holder.visible) { tr.P.copy(tp); tr.Q.copy(tq); tr.S.copy(ts); }
+          else { tr.P.lerp(tp, 0.45); tr.Q.slerp(tq, 0.4); tr.S.lerp(ts, 0.45); }
+          holder.matrix.compose(tr.P, tr.Q, tr.S); holder.visible = true;
+          tr.lastSeen = now; tr.everSeen = true; current = tr;
+        } else if (holder.visible && now - tr.lastSeen > HOLD_MS) holder.visible = false;
+        if (holder.visible) { any = true; tr.ds.update(dt); }
+      }
+      $('hint').hidden = any; $('hud').hidden = !tracks.some(t => t.everSeen);
+      renderer.render(scene, camera);
+    });
     running = { stop() { renderer.setAnimationLoop(null); try { mindar.stop(); } catch (e) {} } };
   } catch (e) {
     console.error(e);
@@ -763,10 +1412,11 @@ async function startAR() {
   }
 }
 
+$('swapWorld').onclick = () => startPreview((previewIndex + 1) % WORLDS.length);
 $('startAR').onclick = startAR;
-$('startPreview').onclick = startPreview;
+$('startPreview').onclick = () => startPreview(0);
 $('back').onclick = showStart;
-if (location.hash === '#preview') startPreview(); else startHero();
+if (location.hash === '#preview') startPreview(0); else if (location.hash === '#city') startPreview(1); else if (location.hash === '#stone') startPreview(2); else startHero();
 </script>
 </body>
 </html>
